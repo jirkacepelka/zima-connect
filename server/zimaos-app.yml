@@ -3,6 +3,7 @@ name: zima-connect
 services:
   zima-connect:
     image: ghcr.io/jirkacepelka/zima-connect-server:latest
+    pull_policy: always
     container_name: zima-connect
     restart: unless-stopped
     network_mode: bridge

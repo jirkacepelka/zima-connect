@@ -5,7 +5,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: ghcr.io/zima-connect/server:latest
+    image: ghcr.io/jirkacepelka/zima-connect-server:latest
     container_name: zima-connect
     restart: unless-stopped
     ports:
