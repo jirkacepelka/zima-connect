@@ -97,6 +97,12 @@ svg { flex: none; display: block; }
 .field:focus { outline: none; border-color: var(--hue); box-shadow: 0 0 0 3px var(--hue-pale); }
 .label { display: block; font-weight: 500; margin-bottom: 8px; }
 
+.banner { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; padding: 12px 16px; margin-bottom: 20px; border: 1px solid var(--border); border-radius: var(--radius-card); background: var(--surface); }
+.banner .grow { flex: 1; min-width: 200px; }
+.notes { max-height: 280px; overflow: auto; margin-bottom: 4px; padding: 12px 14px; border: 1px solid var(--border); border-radius: 8px; background: var(--raised); }
+.notes p, .notes h4 { margin: 0 0 6px; }
+.notes h4 { font-size: 13px; }
+.notes ul { margin: 0 0 6px; padding-left: 18px; }
 .check { display: flex; gap: 8px; align-items: center; font-size: 13px; color: var(--muted); cursor: pointer; }
 .check input { width: 16px; height: 16px; accent-color: var(--on); }
 .switch { position: relative; display: inline-block; width: 32px; height: 20px; flex: none; }
@@ -348,8 +354,55 @@ function shell(r, title, body) {
     </aside>
     <div>
       <header class="topbar"><button class="icon-btn" data-action="menu" aria-label="Menu">${icon('menu', 20)}</button><b>${esc(title)}</b></header>
-      <main class="canvas"><div class="content">${body}</div></main>
+      <main class="canvas"><div class="content">${updateBanner()}${body}</div></main>
     </div></div>`;
+}
+
+/* ── updates ─────────────────────────────────── */
+function notesHtml(md) {
+  const lines = String(md || '').split(/\r?\n/).map(l => l.trim()).filter(l => l && !/^full changelog/i.test(l) && !/^\*\*full changelog/i.test(l));
+  let out = '', list = false;
+  for (const l of lines) {
+    const item = l.match(/^[-*]\s+(.*)/);
+    if (item) { if (!list) { out += '<ul>'; list = true; } out += '<li>' + esc(item[1].replace(/\*\*/g, '').replace(/`/g, '')) + '</li>'; continue; }
+    if (list) { out += '</ul>'; list = false; }
+    out += /^#+\s/.test(l) ? '<h4>' + esc(l.replace(/^#+\s*/, '')) + '</h4>' : '<p>' + esc(l.replace(/\*\*/g, '').replace(/`/g, '')) + '</p>';
+  }
+  return out + (list ? '</ul>' : '');
+}
+function updateBanner() {
+  const a = U && U.available;
+  if (!a) return '';
+  return `<div class="banner" role="status"><div class="grow"><b>Version ${esc(a.latest)} is available</b><span class="sub"> You have ${esc(U.current)}.</span></div>
+    <button class="link" data-update-info>What’s new</button>
+    ${a.can_install ? '<button class="btn btn-primary" data-update-go>Update and restart</button>' : `<a class="btn btn-secondary" href="${esc(a.page)}" target="_blank" rel="noopener">Open download page</a>`}</div>`;
+}
+function updateSheet() {
+  const a = U && U.available;
+  if (!a) return;
+  sheet(`<h3>Version ${esc(a.latest)}</h3><p class="lead">You have ${esc(U.current)}. The server keeps your people, devices and settings.</p>
+    <div class="notes">${notesHtml(a.notes) || '<p>No release notes.</p>'}</div>
+    <div class="sheet-actions"><button class="btn btn-secondary" data-close>Later</button>${a.can_install ? '<button class="btn btn-primary" data-go>Update and restart</button>' : `<a class="btn btn-primary" href="${esc(a.page)}" target="_blank" rel="noopener">Open download page</a>`}</div>`,
+  (o, close) => {
+    $('[data-close]', o).onclick = close;
+    const go = $('[data-go]', o); if (go) go.onclick = () => { o.remove(); installUpdate(); };
+  });
+}
+async function installUpdate() {
+  toast('Downloading the update…');
+  try { await api('/api/update/install', {}); }
+  catch (e) { toast(e.message, true); return; }
+  $('#app').insertAdjacentHTML('afterbegin', '<div class="banner" style="margin:16px">Restarting the server…</div>');
+  const to = U.available.latest;
+  for (let i = 0; i < 60; i++) {
+    await new Promise(r => setTimeout(r, 2000));
+    try { const st = await fetch('/api/session').then(r => r.json()); if (st) { location.reload(); return; } } catch { /* still restarting */ }
+  }
+  toast('The server is taking long to restart. Reload this page in a moment.', true);
+}
+async function checkUpdate() {
+  try { U = await api('/api/update/check', {}); render(); toast(U.available ? 'A new version is available' : 'You are up to date'); }
+  catch (e) { toast(e.message, true); }
 }
 
 function render() {
@@ -469,6 +522,7 @@ function pageServer() {
     <div class="section"><div><h2>Status</h2><div class="desc">The server passes data between devices and keeps items for devices that are offline.</div></div>
       <div class="panel card">
         <div class="kv"><div class="k">Relay</div><span class="status"><span class="dot ${S.relay ? 'on' : ''}"></span>${S.own_relay.running ? 'Your own relay' : S.relay ? 'Public relay' : 'Not connected'}</span></div>
+        <div class="kv"><div class="k">Version</div><span class="v num">${esc(S.version)} <button class="link" data-checkupdate style="margin-left:10px">Check for updates</button></span></div>
         <div class="kv"><div class="k">Running for</div><span class="v num">${fmtUp(S.uptime_secs)}</span></div>
         <div class="kv"><div class="k">Waiting for offline devices</div><span class="v num">${plural(S.queue.items, 'item', 'items')}, ${fmtBytes(S.queue.bytes)}</span></div>
       </div></div>
@@ -507,6 +561,9 @@ function bind() {
   $$('[data-action="logout"]').forEach(el => el.onclick = async () => { await api('/api/logout', {}); location.hash = ''; boot(); });
   $$('[data-adddev]').forEach(el => el.onclick = () => inviteFor(S.users.find(u => u.id === el.dataset.adddev)));
   $$('[data-rename]').forEach(el => el.onclick = () => renameSheet(S.users.find(u => u.id === el.dataset.rename)));
+  $$('[data-update-info]').forEach(el => el.onclick = updateSheet);
+  $$('[data-update-go]').forEach(el => el.onclick = () => confirmSheet('Update the server?', 'It downloads the new version and restarts. Devices reconnect by themselves within a minute.', 'Update and restart', installUpdate));
+  $$('[data-checkupdate]').forEach(el => el.onclick = checkUpdate);
   $$('[data-rmshelf]').forEach(el => el.onclick = () => confirmSheet(`Remove “${el.dataset.name}”?`, 'It disappears from the shelf for everyone.', 'Remove file', async () => { try { await api('/api/shelf/delete', { id: el.dataset.rmshelf }); toast('Removed'); } catch (e) { toast(e.message, true); } refresh(true); }));
   $$('[data-rendev]').forEach(el => el.onclick = () => renameDeviceSheet(el.dataset.rendev, el.dataset.name));
   $$('[data-rmdev]').forEach(el => el.onclick = () => confirmSheet(`Remove “${el.dataset.name}”?`, 'It stops working with the other devices. You can add it again later with a new code.', 'Remove device', () => run({ op: 'remove_device', id: el.dataset.rmdev }, `${el.dataset.name} removed`)));
@@ -656,11 +713,13 @@ function confirmSheet(title, text, action, fn) {
 }
 
 /* ── data ────────────────────────────────────── */
+let U = null;   // update info from the server
 async function refresh(force = false) {
   try {
     S = await api('/api/state');
+    try { U = await api('/api/update'); } catch { /* optional */ }
     const { now, uptime_secs, ...rest } = S;           // redraw only when something visible changed
-    const sig = JSON.stringify(rest);
+    const sig = JSON.stringify([rest, U]);
     const busy = document.querySelector('.overlay') || document.activeElement?.matches('input:not([type=checkbox])');
     if (force || (!busy && sig !== lastSig)) { lastSig = sig; render(); }
   } catch (e) { if (e.status === 401) boot(); }

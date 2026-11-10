@@ -8,7 +8,8 @@
   import ShelfView from '$lib/ShelfView.svelte';
   import SettingsView from '$lib/SettingsView.svelte';
   import HouseholdView from '$lib/HouseholdView.svelte';
-  import { api, errText, type Activity, type Contact, type Household } from '$lib/api';
+  import UpdateDialog from '$lib/UpdateDialog.svelte';
+  import { api, errText, type Activity, type Contact, type Household, type UpdateInfo } from '$lib/api';
 
   type View = 'device' | 'shelf' | 'activity' | 'people' | 'settings';
 
@@ -34,6 +35,17 @@
   let invite = $state<{ code: string; label: string } | null>(null);
   let inviteCopied = $state(false);
   let leaving = $state(false);
+  let update = $state<UpdateInfo | null>(null);
+  let updateOpen = $state(false);
+
+  async function checkUpdate(manual = false) {
+    try {
+      update = await api.checkUpdate();
+      if (manual) say(update ? `Version ${update.latest} is available` : 'You are up to date');
+    } catch (e) {
+      if (manual) say(errText(e), true);
+    }
+  }
 
   // Files dropped on the window go to the open device or to the shelf.
   let dragging = $state(false);
@@ -77,6 +89,8 @@
 
   onMount(() => {
     refresh();
+    const firstCheck = setTimeout(checkUpdate, 8000);
+    const updatePoll = setInterval(checkUpdate, 6 * 3600 * 1000);
     const poll = setInterval(refresh, 5000);
     const tick = setInterval(() => (now = Date.now()), 30000);
     const ringPoll = setInterval(checkRing, 1000);
@@ -98,6 +112,8 @@
         /* not running inside the app (browser preview) */
       });
     return () => {
+      clearTimeout(firstCheck);
+      clearInterval(updatePoll);
       clearInterval(poll);
       clearInterval(tick);
       clearInterval(ringPoll);
@@ -284,10 +300,17 @@
 
   <main class="main" class:dragging>
     <div class="content">
+      {#if update}
+        <div class="banner" role="status">
+          <div class="grow"><b>Version {update.latest} is available</b> <span class="sub">You have {update.current}.</span></div>
+          <button class="link" onclick={() => (updateOpen = true)}>What’s new</button>
+          <button class="btn btn-primary" onclick={() => (updateOpen = true)}>Update</button>
+        </div>
+      {/if}
       {#if !loaded}
         <div class="center"><div class="spinner"></div></div>
       {:else if view === 'settings'}
-        <SettingsView name={identity?.name ?? ''} {household} {say} onRenamed={(n) => identity && (identity = { ...identity, name: n })} onAddDevice={() => (addOpen = household ? 'show' : 'server')} onLeave={() => (leaving = true)} />
+        <SettingsView name={identity?.name ?? ''} {household} {say} onRenamed={(n) => identity && (identity = { ...identity, name: n })} onAddDevice={() => (addOpen = household ? 'show' : 'server')} onLeave={() => (leaving = true)} onCheckUpdate={() => checkUpdate(true)} />
       {:else if view === 'shelf'}
         <ShelfView {household} {dragging} {say} onlistenDrop={(h) => (shelfDrop = h)} />
       {:else if view === 'activity'}
@@ -329,6 +352,10 @@
     </div>
   </main>
 </div>
+
+{#if updateOpen && update}
+  <UpdateDialog info={update} {say} onclose={() => (updateOpen = false)} />
+{/if}
 
 {#if addOpen}
   <AddDevice
@@ -514,6 +541,21 @@
     min-height: 60vh;
     display: grid;
     place-items: center;
+  }
+  .banner {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    flex-wrap: wrap;
+    padding: 12px 16px;
+    margin-bottom: 20px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-card);
+  }
+  .banner .grow {
+    flex: 1;
+    min-width: 200px;
   }
   .hero {
     max-width: 420px;

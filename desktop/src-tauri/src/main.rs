@@ -5,6 +5,7 @@ mod commands;
 mod remote;
 mod settings;
 mod state;
+mod updater;
 
 use std::sync::Arc;
 
@@ -202,6 +203,10 @@ fn main() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::rename_device,
+            commands::app_version,
+            commands::open_external,
+            commands::check_update,
+            commands::install_update,
             commands::get_settings,
             commands::set_settings,
             commands::shelf_list,

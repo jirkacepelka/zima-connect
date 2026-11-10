@@ -9,7 +9,8 @@
     say,
     onRenamed,
     onAddDevice,
-    onLeave
+    onLeave,
+    onCheckUpdate
   }: {
     name: string;
     household: Household | null;
@@ -17,7 +18,10 @@
     onRenamed: (name: string) => void;
     onAddDevice: () => void;
     onLeave: () => void;
+    onCheckUpdate: () => void;
   } = $props();
+
+  let version = $state('');
 
   let prefs = $state<Settings | null>(null);
   let editing = $state(false);
@@ -25,6 +29,7 @@
 
   onMount(() => {
     api.settings().then((s) => (prefs = s));
+    api.appVersion().then((v) => (version = v));
   });
 
   async function save(patch: Partial<Settings>) {
@@ -99,6 +104,14 @@
       <label class="switch"><input type="checkbox" role="switch" aria-label="Allow remote control" checked={prefs.allow_remote} onchange={(e) => save({ allow_remote: e.currentTarget.checked })} /><i></i></label>
     </div>
   {/if}
+</section>
+
+<section class="card" aria-labelledby="h-ver">
+  <div class="card-head"><h2 id="h-ver">Updates</h2></div>
+  <div class="row">
+    <div class="grow"><div class="name">Zima Connect {version}</div><div class="sub">New versions are found automatically and installed with one click, no reinstalling.</div></div>
+    <button class="btn btn-secondary" onclick={onCheckUpdate}>Check for updates</button>
+  </div>
 </section>
 
 <section class="card" aria-labelledby="h-srv">

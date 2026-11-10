@@ -170,12 +170,38 @@ jobs:
           path: dist/*
           if-no-files-found: error
 
+  server-binary:
+    name: Server binary
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      # Built in the same Debian image as the container, so running servers can replace
+      # their own binary with it ("Update and restart" in the dashboard).
+      - name: Build
+        run: |
+          V="${VERSION#v}"
+          docker buildx build -f server/Dockerfile --target binary --build-arg VERSION="$V" \
+            --output type=local,dest=out .
+          mkdir -p dist
+          cp out/zima-connect-hub dist/zima-connect-hub-linux-x86_64
+          ls -la dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: server-binary
+          path: dist/*
+          if-no-files-found: error
+
   publish:
     name: Publish release
-    needs: [desktop, android]
+    needs: [desktop, android, server-binary]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
@@ -183,18 +209,24 @@ jobs:
 
       - run: ls -la artifacts
 
+      # "What's new" shown in the apps' update dialogs: the commits since the previous release.
+      - name: Release notes
+        run: |
+          PREV="$(git describe --tags --abbrev=0 "${VERSION}^" 2>/dev/null || true)"
+          RANGE="${PREV:+$PREV..}${VERSION}"
+          {
+            echo "## What's new"
+            echo
+            git log --no-merges --reverse --pretty=format:'%x01%s%n%b' "$RANGE" \
+              | grep -v '^Co-Authored-By' \
+              | sed -e 's/^\x01\(feat\|fix\|chore\|docs\|refactor\)\(([^)]*)\)\?: */### /' -e 's/^\x01/### /' \
+              | sed '/^$/d'
+            echo
+          } > notes.md
+          sed "s/OWNER/${{ github.repository_owner }}/" .github/release-install.md >> notes.md
+          cat notes.md
+
       - uses: softprops/action-gh-release@v2
         with:
           files: artifacts/*
-          generate_release_notes: true
-          body: |
-            ## Install
-
-            - **Windows:** run the `.exe` installer (or the `.msi`).
-            - **Linux:** `.deb` (Debian/Ubuntu), `.rpm` (Fedora) or the portable `.AppImage`.
-            - **Android:** install the `.apk` (allow installs from this source when asked).
-            - **ZimaOS / server:** install the Zima Connect app from `server/zimaos-app.yml`, or run
-              `ghcr.io/${{ github.repository_owner }}/zima-connect-server:latest`. Open `http://<server>:9121`
-              and use the setup code to join your first device.
-
-            The desktop installers are not code-signed, so Windows SmartScreen may warn on first run.
+          body_path: notes.md

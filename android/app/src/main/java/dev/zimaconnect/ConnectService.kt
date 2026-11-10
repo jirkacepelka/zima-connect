@@ -313,7 +313,8 @@ class StopRingReceiver : BroadcastReceiver() {
 /** Start the service again after a reboot so the phone stays reachable. */
 class BootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
-        if (intent.action == Intent.ACTION_BOOT_COMPLETED) {
+        // After a reboot or an in-app update the node must come back by itself.
+        if (intent.action == Intent.ACTION_BOOT_COMPLETED || intent.action == Intent.ACTION_MY_PACKAGE_REPLACED) {
             runCatching {
                 ContextCompat.startForegroundService(context, Intent(context, ConnectService::class.java))
             }

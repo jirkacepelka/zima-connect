@@ -38,6 +38,17 @@ export type ShelfItem = {
   created: number;
   mine: boolean;
 };
+export type UpdateInfo = {
+  current: string;
+  latest: string;
+  notes: string;
+  size: number;
+  name: string;
+  url: string;
+  sha256: string | null;
+  can_install: boolean;
+  page: string;
+};
 export type Settings = { background: boolean; autostart: boolean; allow_remote: boolean };
 export type RemoteInput =
   | { k: 'move'; dx: number; dy: number }
@@ -95,6 +106,10 @@ export const api = {
   ringState: () => invoke<string | null>('get_ring_state'),
   stopRing: () => invoke<void>('stop_ring'),
   reveal: (path: string) => invoke<void>('reveal_path', { path }),
+  openExternal: (url: string) => invoke<void>('open_external', { url }),
+  appVersion: () => invoke<string>('app_version'),
+  checkUpdate: () => invoke<UpdateInfo | null>('check_update'),
+  installUpdate: (info: UpdateInfo) => invoke<void>('install_update', { info }),
   renameDevice: (name: string) => invoke<string>('rename_device', { name }),
   settings: () => invoke<Settings>('get_settings'),
   setSettings: (next: Settings) => invoke<Settings>('set_settings', { new: next }),

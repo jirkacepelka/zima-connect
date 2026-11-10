@@ -180,6 +180,13 @@ fun App(shared: List<Uri>, clearShared: () -> Unit) {
                 ContextCompat.startForegroundService(ctx, Intent(ctx, ConnectService::class.java))
             }
         }
+        launch {
+            delay(5000)
+            while (true) {
+                runCatching { Updater.check(ctx) }
+                delay(6 * 3600_000L)
+            }
+        }
         while (true) {
             runCatching { AppModel.refresh() }
             delay(6000)
@@ -240,6 +247,7 @@ fun App(shared: List<Uri>, clearShared: () -> Unit) {
         },
     ) { pad ->
         Column(Modifier.padding(pad).fillMaxSize()) {
+        UpdateBanner(::say)
         AppModel.ringingFrom?.let { from ->
             Card(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
@@ -754,6 +762,8 @@ private fun SettingsScreen(say: (String) -> Unit, onLeft: () -> Unit) {
 
     LazyColumn(contentPadding = PaddingValues(16.dp)) {
         item {
+            UpdateCard(say)
+            Spacer(Modifier.height(16.dp))
             RenameCard(say)
             Spacer(Modifier.height(16.dp))
             Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), modifier = Modifier.fillMaxWidth()) {

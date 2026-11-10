@@ -63,6 +63,32 @@ pub async fn get_contacts(state: State<'_, SharedState>) -> Result<Vec<ContactVi
     Ok(join_all(futs).await)
 }
 
+/// Open a web page in the default browser (https only).
+#[tauri::command]
+pub fn open_external(url: String) -> Result<(), String> {
+    if !url.starts_with("https://") {
+        return Err("only https links can be opened".into());
+    }
+    open::that(url).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn app_version(app: AppHandle) -> String {
+    app.package_info().version.to_string()
+}
+
+/// A newer release on GitHub, with its release notes. `None` when up to date.
+#[tauri::command]
+pub async fn check_update(app: AppHandle) -> Result<Option<crate::updater::UpdateInfo>, String> {
+    crate::updater::check(&app.package_info().version.to_string()).await
+}
+
+/// Download and install the update, then restart. Progress arrives as `update-progress` events.
+#[tauri::command]
+pub async fn install_update(info: crate::updater::UpdateInfo, app: AppHandle) -> Result<(), String> {
+    crate::updater::install(app, info).await
+}
+
 /// Give this computer a new name (shown on all other devices).
 #[tauri::command]
 pub async fn rename_device(name: String, state: State<'_, SharedState>) -> Result<String, String> {

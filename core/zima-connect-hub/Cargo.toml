@@ -13,6 +13,8 @@ path = "src/main.rs"
 [dependencies]
 zima-connect-net = { path = "../zima-connect-net" }
 iroh-relay = { version = "1.4.1", features = ["server"] }
+reqwest = { version = "0.13", features = ["json", "stream"] }
+futures-util = "0.3"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal", "time"] }
 axum = { version = "0.8", default-features = false, features = ["http1", "tokio", "json"] }
 serde = { version = "1", features = ["derive"] }

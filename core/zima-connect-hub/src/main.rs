@@ -18,6 +18,8 @@ use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use zima_connect_net::{AdminOp, Node, NodeConfig, RelaySetting};
 
+mod update;
+
 const DASHBOARD: &str = include_str!("dashboard.html");
 const FONT_SANS: &[u8] = include_bytes!("fonts/Geist-Variable.woff2");
 const FONT_MONO: &[u8] = include_bytes!("fonts/GeistMono-Variable.woff2");
@@ -56,6 +58,10 @@ struct AppState {
     relay_path: PathBuf,
     relay_cfg: Mutex<RelayCfg>,
     relay_srv: tokio::sync::Mutex<Option<iroh_relay::server::Server>>,
+    data_dir: PathBuf,
+    /// Newer release found on GitHub (checked every few hours).
+    update: Mutex<Option<update::Info>>,
+    update_checked: Mutex<Option<Instant>>,
     admin_path: PathBuf,
     admin: Mutex<Option<AdminRecord>>,
     sessions: Mutex<HashSet<String>>,
@@ -314,6 +320,7 @@ async fn state(State(st): St, headers: HeaderMap) -> Response {
         "shelf": st.node.hub_shelf().unwrap_or_default(),
         "queue": { "items": queued, "bytes": queued_bytes },
         "uptime_secs": st.started.elapsed().as_secs(),
+        "version": update::VERSION,
         "relay": st.node.wait_online(Duration::from_millis(1)).await,
         "own_relay": {
             "enabled": st.relay_cfg.lock().unwrap().enabled,
@@ -414,6 +421,56 @@ async fn shelf_delete(State(st): St, headers: HeaderMap, Json(b): Json<ShelfDele
     Json(json!({ "ok": true })).into_response()
 }
 
+async fn refresh_update(st: &AppState) {
+    match update::check().await {
+        Ok(found) => *st.update.lock().unwrap() = found,
+        Err(e) => println!("Update check failed: {e}"),
+    }
+    *st.update_checked.lock().unwrap() = Some(Instant::now());
+}
+
+fn update_json(st: &AppState) -> Value {
+    json!({
+        "current": update::VERSION,
+        "available": *st.update.lock().unwrap(),
+        "checked": st.update_checked.lock().unwrap().is_some(),
+    })
+}
+
+async fn get_update(State(st): St, headers: HeaderMap) -> Response {
+    if !st.authed(&headers) {
+        return err(StatusCode::UNAUTHORIZED, "sign in first");
+    }
+    Json(update_json(&st)).into_response()
+}
+
+async fn check_update(State(st): St, headers: HeaderMap) -> Response {
+    if !st.authed(&headers) {
+        return err(StatusCode::UNAUTHORIZED, "sign in first");
+    }
+    refresh_update(&st).await;
+    Json(update_json(&st)).into_response()
+}
+
+/// Download the new version, then exit so the container entrypoint starts it.
+async fn install_update(State(st): St, headers: HeaderMap) -> Response {
+    if !st.authed(&headers) {
+        return err(StatusCode::UNAUTHORIZED, "sign in first");
+    }
+    let info = st.update.lock().unwrap().clone();
+    let Some(info) = info else {
+        return err(StatusCode::BAD_REQUEST, "no update is available");
+    };
+    if let Err(e) = update::install(&st.data_dir, &info).await {
+        return err(StatusCode::BAD_REQUEST, &format!("{e}"));
+    }
+    tokio::spawn(async {
+        tokio::time::sleep(Duration::from_millis(800)).await;
+        std::process::exit(update::EXIT_FOR_UPDATE);
+    });
+    Json(json!({ "ok": true, "version": info.latest })).into_response()
+}
+
 /// Keep device reachability fresh without blocking the dashboard.
 fn spawn_prober(st: Arc<AppState>) {
     tokio::spawn(async move {
@@ -445,6 +502,10 @@ fn spawn_prober(st: Arc<AppState>) {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    if std::env::args().any(|a| a == "--version") {
+        println!("{}", update::VERSION);
+        return Ok(());
+    }
     let data_dir = PathBuf::from(env("ZC_DATA_DIR", "./data"));
     let port: u16 = env("ZC_DASHBOARD_PORT", "9121").parse().unwrap_or(9121);
     let household = env("ZC_HOUSEHOLD", "Home");
@@ -480,6 +541,9 @@ async fn main() -> anyhow::Result<()> {
         relay_path,
         relay_cfg: Mutex::new(relay_cfg),
         relay_srv: tokio::sync::Mutex::new(None),
+        data_dir: data_dir.clone(),
+        update: Mutex::new(None),
+        update_checked: Mutex::new(None),
         admin_path,
         admin: Mutex::new(admin_rec),
         sessions: Mutex::new(HashSet::new()),
@@ -516,6 +580,9 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/state", get(state))
         .route("/api/admin", post(admin))
         .route("/api/relay", post(set_relay))
+        .route("/api/update", get(get_update))
+        .route("/api/update/check", post(check_update))
+        .route("/api/update/install", post(install_update))
         .route("/api/shelf/delete", post(shelf_delete))
         .with_state(st.clone());
 
@@ -524,6 +591,16 @@ async fn main() -> anyhow::Result<()> {
     println!("Dashboard: http://0.0.0.0:{port}/");
     println!("Server id: {}", node.id());
     spawn_prober(st.clone());
+    {
+        let st = st.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_secs(20)).await;
+            loop {
+                refresh_update(&st).await;
+                tokio::time::sleep(Duration::from_secs(6 * 3600)).await;
+            }
+        });
+    }
 
     let n2 = node.clone();
     tokio::spawn(async move {
