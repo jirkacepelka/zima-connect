@@ -1,22 +1,28 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import Icon from '$lib/Icon.svelte';
+  import Qr from '$lib/Qr.svelte';
+  import Dialog from '$lib/Dialog.svelte';
+  import AddDevice from '$lib/AddDevice.svelte';
+  import DeviceView from '$lib/DeviceView.svelte';
+  import ShelfView from '$lib/ShelfView.svelte';
+  import SettingsView from '$lib/SettingsView.svelte';
   import HouseholdView from '$lib/HouseholdView.svelte';
-import Qr from '$lib/Qr.svelte';
-  import { api, errText, type Activity, type Cap, type Contact, type Delivery, type Household } from '$lib/api';
+  import { api, errText, type Activity, type Contact, type Household } from '$lib/api';
+
+  type View = 'device' | 'shelf' | 'activity' | 'people' | 'settings';
 
   let identity = $state<{ id: string; name: string; platform: string } | null>(null);
   let contacts = $state<Contact[]>([]);
   let household = $state<Household | null>(null);
   let activities = $state<Activity[]>([]);
   let selectedId = $state<string | null>(null);
-  let view = $state<'device' | 'household'>('device');
+  let view = $state<View>('device');
   let loaded = $state(false);
   let now = $state(Date.now());
 
   let toast = $state<{ text: string; error: boolean } | null>(null);
   let toastTimer: ReturnType<typeof setTimeout>;
-  let busy = $state<string | null>(null);
 
   // Find my device: ringing someone else (until), and being rung (by whom).
   let ringingPeer = $state<{ id: string; until: number } | null>(null);
@@ -24,23 +30,16 @@ import Qr from '$lib/Qr.svelte';
   let audio: AudioContext | null = null;
   let beepTimer: ReturnType<typeof setInterval> | null = null;
 
-  // Add-device dialog
-  let dlgOpen = $state(false);
-  let tab = $state<'server' | 'show' | 'enter'>('server');
-  let serverCode = $state('');
-  let yourName = $state('');
-  let myCode = $state('');
-  let codeLoading = $state(false);
-  let codeCopied = $state(false);
-  let enteredCode = $state('');
-  let working = $state(false);
-
-  // Invitation code dialog (owner creates for a new device / person)
+  let addOpen = $state<null | 'server' | 'show' | 'enter'>(null);
   let invite = $state<{ code: string; label: string } | null>(null);
   let inviteCopied = $state(false);
+  let leaving = $state(false);
+
+  // Files dropped on the window go to the open device or to the shelf.
+  let dragging = $state(false);
+  let shelfDrop: ((paths: string[]) => void) | null = null;
 
   const selected = $derived(contacts.find((c) => c.id === selectedId) ?? contacts[0] ?? null);
-
   const groups = $derived.by(() => {
     const mine = contacts.filter((c) => c.mine);
     const direct = contacts.filter((c) => c.direct);
@@ -67,6 +66,7 @@ import Qr from '$lib/Qr.svelte';
       household = await api.household();
       activities = await api.activities();
       contacts = await api.contacts();
+      identity = await api.identity();
       if (!selectedId && contacts.length) selectedId = contacts[0].id;
     } catch (e) {
       say(errText(e), true);
@@ -76,72 +76,76 @@ import Qr from '$lib/Qr.svelte';
   }
 
   onMount(() => {
-    api.identity().then((i) => (identity = i));
     refresh();
     const poll = setInterval(refresh, 5000);
     const tick = setInterval(() => (now = Date.now()), 30000);
     const ringPoll = setInterval(checkRing, 1000);
+    let unlisten: (() => void) | null = null;
+    import('@tauri-apps/api/webview')
+      .then(({ getCurrentWebview }) =>
+        getCurrentWebview().onDragDropEvent((e) => {
+          const p = e.payload;
+          if (p.type === 'enter' || p.type === 'over') dragging = true;
+          else if (p.type === 'leave') dragging = false;
+          else if (p.type === 'drop') {
+            dragging = false;
+            dropped(p.paths);
+          }
+        })
+      )
+      .then((u) => (unlisten = u))
+      .catch(() => {
+        /* not running inside the app (browser preview) */
+      });
     return () => {
       clearInterval(poll);
       clearInterval(tick);
       clearInterval(ringPoll);
+      unlisten?.();
       stopBeeping();
     };
   });
 
-  async function run(key: string, fn: () => Promise<unknown>, okText: string) {
-    if (busy) return;
-    busy = key;
-    try {
-      const r = await fn();
-      if (r !== false) say(okText);
-    } catch (e) {
-      say(errText(e), true);
-    } finally {
-      busy = null;
-      refresh();
+  async function dropped(paths: string[]) {
+    if (!paths.length) return;
+    if (view === 'shelf' && shelfDrop) return shelfDrop(paths);
+    if (view !== 'device' || !selected) return say('Open a device or the shelf, then drop the files.', true);
+    const c = selected;
+    for (const p of paths) {
+      try {
+        const d = await api.sendPath(c.id, p);
+        say(d === 'queued' ? 'Queued: the server delivers it when the device is back' : `Sent to ${c.name}`);
+      } catch (e) {
+        say(errText(e), true);
+      }
     }
+    refresh();
   }
 
-  // Household devices can be reached through the server even when offline (except "ring").
-  const can = (c: Contact, cap: Cap) =>
-    c.caps.includes(cap) && (c.online || (!c.direct && cap !== 'ring'));
-  const why = (c: Contact, cap: Cap) =>
-    !c.caps.includes(cap)
-      ? `Not allowed for ${c.user_name ?? 'this device'} by your household rules`
-      : !can(c, cap)
-        ? 'Device is not reachable right now'
-        : '';
-
-  // Shows its own toast, then returns false so run() adds no second one.
-  const done = (d: Delivery | null, what: string) => {
-    if (d !== null) {
-      say(d === 'queued' ? `${what} queued: the server delivers it when the device is back` : `${what} sent`);
-    }
-    return false;
-  };
-  const sendClipboard = () => run('clip', async () => done(await api.sendClipboard(selected!.id), 'Clipboard'), '');
-  const sendFile = () => run('file', async () => done(await api.sendFile(selected!.id), 'File'), '');
-  const ring = () =>
-    run(
-      'ring',
-      async () => {
-        await api.ring(selected!.id);
-        ringingPeer = { id: selected!.id, until: Date.now() + 30000 };
-      },
-      'Device is ringing'
-    );
-  const stopRinging = () =>
-    run(
-      'ring',
-      async () => {
-        const id = ringingPeer?.id ?? selected!.id;
-        ringingPeer = null;
-        await api.ringStop(id);
-      },
-      'Stopped ringing'
-    );
+  // -- find my device ---------------------------------------------------------
   const isRinging = (id: string) => !!ringingPeer && ringingPeer.id === id && ringingPeer.until > now;
+  async function ring() {
+    if (!selected) return;
+    try {
+      await api.ring(selected.id);
+      ringingPeer = { id: selected.id, until: Date.now() + 30000 };
+      say('Device is ringing');
+    } catch (e) {
+      say(errText(e), true);
+    }
+    refresh();
+  }
+  async function stopRinging() {
+    const id = ringingPeer?.id ?? selected?.id;
+    ringingPeer = null;
+    if (!id) return;
+    try {
+      await api.ringStop(id);
+      say('Stopped ringing');
+    } catch (e) {
+      say(errText(e), true);
+    }
+  }
 
   async function checkRing() {
     if (ringingPeer && ringingPeer.until < Date.now()) ringingPeer = null;
@@ -154,7 +158,6 @@ import Qr from '$lib/Qr.svelte';
       /* ignore */
     }
   }
-
   function startBeeping() {
     try {
       audio = audio ?? new AudioContext();
@@ -179,98 +182,21 @@ import Qr from '$lib/Qr.svelte';
       /* no audio available */
     }
   }
-
   function stopBeeping() {
     if (beepTimer) clearInterval(beepTimer);
     beepTimer = null;
   }
-
   async function silence() {
     stopBeeping();
     rungBy = null;
     await api.stopRing();
   }
 
-  async function openDialog(start: 'server' | 'show' | 'enter' = household ? 'show' : 'server') {
-    dlgOpen = true;
-    serverCode = '';
-    enteredCode = '';
-    await setTab(start);
-  }
-
-  async function setTab(t: 'server' | 'show' | 'enter') {
-    tab = t;
-    if (t === 'show') {
-      myCode = '';
-      codeCopied = false;
-      codeLoading = true;
-      try {
-        myCode = await api.pairingCode();
-      } catch (e) {
-        say(errText(e), true);
-      } finally {
-        codeLoading = false;
-      }
-    }
-  }
-
-  async function copy(text: string, flag: 'code' | 'invite') {
-    try {
-      await navigator.clipboard.writeText(text);
-      if (flag === 'code') codeCopied = true;
-      else inviteCopied = true;
-      setTimeout(() => {
-        codeCopied = false;
-        inviteCopied = false;
-      }, 1800);
-    } catch {
-      say('Could not copy. Select the code and copy it manually.', true);
-    }
-  }
-
-  async function submitServer() {
-    if (!serverCode.trim() || working) return;
-    working = true;
-    try {
-      const name = await api.join(serverCode.trim(), yourName.trim() || null);
-      dlgOpen = false;
-      say(`Joined ${name}`);
-      await refresh();
-    } catch (e) {
-      say(errText(e), true);
-    } finally {
-      working = false;
-    }
-  }
-
-  async function submitPair() {
-    if (!enteredCode.trim() || working) return;
-    working = true;
-    try {
-      const name = await api.pair(enteredCode.trim());
-      dlgOpen = false;
-      say(`Paired with ${name}`);
-      await refresh();
-      const p = contacts.find((x) => x.name === name);
-      if (p) selectedId = p.id;
-    } catch (e) {
-      say(errText(e), true);
-    } finally {
-      working = false;
-    }
-  }
-
+  // -- people & pairing ---------------------------------------------------------
   async function unpair() {
-    if (!selected) return;
+    if (!selected?.direct) return;
     const s = selected;
-    const msg = s.direct
-      ? `Remove “${s.name}”? You can pair it again later.`
-      : `Remove “${s.name}” from the household? Only the household owner can do this from the Household page.`;
-    if (!s.direct) {
-      say('Devices in a household are removed by the owner on the Household page.');
-      return;
-    }
-    if (!confirm(msg)) return;
+    if (!confirm(`Remove “${s.name}”? You can pair it again later.`)) return;
     try {
       await api.unpair(s.id);
       selectedId = null;
@@ -280,37 +206,29 @@ import Qr from '$lib/Qr.svelte';
       say(errText(e), true);
     }
   }
-
-  // Close the "show my code" dialog automatically when another device pairs with it.
-  let knownCount = 0;
-  $effect(() => {
-    const n = contacts.length;
-    if (n > knownCount && dlgOpen && tab === 'show') {
-      dlgOpen = false;
-      say('Device paired');
+  async function leave() {
+    try {
+      await api.leave();
+      leaving = false;
+      say('You left the server');
+      view = 'device';
+      refresh();
+    } catch (e) {
+      say(errText(e), true);
     }
-    knownCount = n;
-  });
-
-  function iconFor(platform: string) {
-    if (platform === 'android' || platform === 'ios') return 'phone';
-    if (platform === 'server') return 'server';
-    if (platform === 'windows' || platform === 'linux' || platform === 'macos') return 'laptop';
-    return 'desktop';
+  }
+  async function copyInvite() {
+    if (!invite) return;
+    try {
+      await navigator.clipboard.writeText(invite.code);
+      inviteCopied = true;
+      setTimeout(() => (inviteCopied = false), 1800);
+    } catch {
+      say('Could not copy. Select the code and copy it manually.', true);
+    }
   }
 
-  function platformLabel(p: string) {
-    const m: Record<string, string> = {
-      android: 'Android',
-      windows: 'Windows',
-      linux: 'Linux',
-      macos: 'macOS',
-      ios: 'iOS',
-      server: 'ZimaOS'
-    };
-    return m[p] ?? p;
-  }
-
+  const icon = (p: string) => (p === 'android' || p === 'ios' ? 'phone' : p === 'server' ? 'server' : 'laptop');
   function ago(ts: number) {
     const s = Math.max(0, Math.round((now - ts) / 1000));
     if (s < 45) return 'just now';
@@ -320,266 +238,140 @@ import Qr from '$lib/Qr.svelte';
     if (h < 24) return `${h} h ago`;
     return new Date(ts).toLocaleDateString();
   }
-
   const activityIcon = (k: string) =>
-    ({ clipboard: 'clipboard', file: 'file', ring: 'bell', notification: 'bell', pair: 'link' } as Record<string, string>)[k] ?? 'bell';
+    ({ clipboard: 'clipboard', file: 'file', ring: 'bell', notification: 'bell', pair: 'link', link: 'globe', shelf: 'shelf' } as Record<string, string>)[k] ?? 'activity';
 
-  function onKey(e: KeyboardEvent) {
-    if (e.key === 'Escape') {
-      dlgOpen = false;
-      invite = null;
-    }
-  }
+  const go = (v: View, id?: string) => {
+    view = v;
+    if (id) selectedId = id;
+  };
 </script>
 
-<svelte:window onkeydown={onKey} />
-
 <div class="app">
-  <aside class="sidebar">
-    <div class="brand">
-      <div class="logo"><Icon name="link" size={16} /></div>
-      <span>Zima Connect</span>
+  <aside class="side" aria-label="Navigation">
+    <div class="mark">
+      <span class="glyph"><Icon name="link" size={15} /></span>
+      <div><b>Zima Connect</b><span>{household ? household.info.household : 'Not connected to a server'}</span></div>
     </div>
 
-    <nav class="devices">
+    <nav class="nav">
       {#each groups as g (g.label)}
-        <div class="section-label">{g.label}</div>
+        <div class="group">{g.label}</div>
         {#each g.items as p (p.id)}
-          <button
-            class="device"
-            class:active={view === 'device' && selected?.id === p.id}
-            onclick={() => {
-              selectedId = p.id;
-              view = 'device';
-            }}
-          >
-            <span class="dev-icon"><Icon name={iconFor(p.platform)} size={18} /></span>
-            <span class="dev-text">
-              <span class="dev-name">{p.name}</span>
-              <span class="dev-sub">{p.online ? 'Connected' : 'Offline'}</span>
-            </span>
-            <span class="dot" class:on={p.online}></span>
+          <button class="item" aria-current={view === 'device' && selected?.id === p.id ? 'page' : undefined} onclick={() => go('device', p.id)}>
+            <Icon name={icon(p.platform)} size={16} />
+            <span class="lbl">{p.name}</span>
+            <span class="dot" class:on={p.online} title={p.online ? 'Connected' : 'Offline'}></span>
           </button>
         {/each}
       {/each}
-      {#if loaded && contacts.length === 0}
-        <p class="empty-side">No devices yet.</p>
+      {#if loaded && contacts.length === 0}<p class="empty-side">No other devices yet.</p>{/if}
+      <button class="item add" onclick={() => (addOpen = household ? 'show' : 'server')}><Icon name="plus" size={16} /><span class="lbl">Add device</span></button>
+
+      <div class="group">Together</div>
+      <button class="item" aria-current={view === 'shelf' ? 'page' : undefined} onclick={() => go('shelf')}><Icon name="shelf" size={16} /><span class="lbl">Shelf</span></button>
+      <button class="item" aria-current={view === 'activity' ? 'page' : undefined} onclick={() => go('activity')}><Icon name="activity" size={16} /><span class="lbl">Activity</span></button>
+      {#if household}
+        <button class="item" aria-current={view === 'people' ? 'page' : undefined} onclick={() => go('people')}><Icon name="users" size={16} /><span class="lbl">People</span></button>
       {/if}
     </nav>
 
-    {#if household}
-      <button class="nav-item" class:active={view === 'household'} onclick={() => (view = 'household')}>
-        <Icon name="users" size={16} /> Household
-      </button>
-    {/if}
-    <button class="add" onclick={() => openDialog()}>
-      <Icon name="plus" size={16} /> Add device
+    <button class="me" aria-current={view === 'settings' ? 'page' : undefined} onclick={() => go('settings')}>
+      <Icon name="settings" size={16} />
+      <span class="who"><b>{identity?.name ?? '…'}</b><span>This computer{household ? ` · ${household.info.me.name}` : ''}</span></span>
     </button>
-
-    <div class="me">
-      <div class="me-label">This computer{household ? ` · ${household.info.me.name}` : ''}</div>
-      <div class="me-name">{identity?.name ?? '…'}</div>
-    </div>
   </aside>
 
-  <main class="main">
-    {#if !loaded}
-      <div class="center"><div class="spinner"></div></div>
-    {:else if view === 'household' && household}
-      <HouseholdView
-        {household}
-        myDeviceId={identity?.id ?? ''}
-        {say}
-        onchange={refresh}
-        oninvite={(code, label) => {
-          invite = { code, label };
-        }}
-      />
-    {:else if !selected}
-      <div class="center">
-        <div class="hero">
-          <div class="hero-icon"><Icon name="pair" size={30} /></div>
-          {#if household}
-            <h1>You’re in {household.info.household}</h1>
-            <p>
-              No other devices yet. Add more devices from the Household page, or install Zima Connect on
-              another device and join with a code.
-            </p>
-            <button class="primary big" onclick={() => (view = 'household')}>Open household</button>
+  <main class="main" class:dragging>
+    <div class="content">
+      {#if !loaded}
+        <div class="center"><div class="spinner"></div></div>
+      {:else if view === 'settings'}
+        <SettingsView name={identity?.name ?? ''} {household} {say} onRenamed={(n) => identity && (identity = { ...identity, name: n })} onAddDevice={() => (addOpen = household ? 'show' : 'server')} onLeave={() => (leaving = true)} />
+      {:else if view === 'shelf'}
+        <ShelfView {household} {dragging} {say} onlistenDrop={(h) => (shelfDrop = h)} />
+      {:else if view === 'activity'}
+        <div class="title-row"><div><h1>Activity</h1><div class="finding">What was sent and received on this computer.</div></div></div>
+        <section class="card">
+          {#each activities as a (a.id)}
+            <div class="row">
+              <Icon name={a.ok ? activityIcon(a.kind) : 'alert'} size={18} />
+              <div class="grow"><div class="name">{a.title}</div><div class="sub">{a.detail}</div></div>
+              {#if a.path}<button class="link" onclick={() => api.reveal(a.path!)}>Show</button>{/if}
+              <span class="sub num">{ago(a.ts)}</span>
+            </div>
           {:else}
-            <h1>Connect your devices</h1>
-            <p>
-              Join your Zima Connect server once and your devices find each other automatically. No account or
-              domain needed.
-            </p>
-            <button class="primary big" onclick={() => openDialog('server')}>Join server</button>
-            <button class="textbtn" onclick={() => openDialog('show')}>or pair two devices directly</button>
-          {/if}
-        </div>
-      </div>
-    {:else}
-      <header class="head">
-        <div class="head-icon"><Icon name={iconFor(selected.platform)} size={30} /></div>
-        <div class="head-text">
-          <h1>{selected.name}</h1>
-          <div class="status">
-            <span class="dot" class:on={selected.online}></span>
-            {#if selected.online}
-              Connected{selected.rtt_ms !== null ? ` · ${selected.rtt_ms} ms` : ''}
-            {:else}
-              Not reachable right now
-            {/if}
-            <span class="sep">·</span>
-            {platformLabel(selected.platform)}
-            {#if selected.user_name && !selected.mine}
-              <span class="sep">·</span> {selected.user_name}’s device
-            {/if}
-          </div>
-        </div>
-        {#if selected.direct}
-          <button class="ghost" onclick={unpair} title="Remove device"><Icon name="trash" size={16} /> Remove</button>
-        {/if}
-      </header>
-
-      <section class="actions">
-        <button class="action" disabled={!can(selected, 'clipboard') || !!busy} title={why(selected, 'clipboard')} onclick={sendClipboard}>
-          <span class="a-icon"><Icon name="clipboard" size={22} /></span>
-          <span class="a-title">Send clipboard</span>
-          <span class="a-sub">{selected.caps.includes('clipboard') ? 'Share what you copied' : 'Not allowed'}</span>
-        </button>
-        <button class="action" disabled={!can(selected, 'files') || !!busy} title={why(selected, 'files')} onclick={sendFile}>
-          <span class="a-icon"><Icon name="file" size={22} /></span>
-          <span class="a-title">Send file</span>
-          <span class="a-sub">{selected.caps.includes('files') ? 'Photos, documents, anything' : 'Not allowed'}</span>
-        </button>
-        {#if isRinging(selected.id)}
-          <button class="action ringing" disabled={!!busy} onclick={stopRinging}>
-            <span class="a-icon"><Icon name="x" size={22} /></span>
-            <span class="a-title">Stop ringing</span>
-            <span class="a-sub">It stops by itself after 30 s</span>
-          </button>
-        {:else}
-          <button class="action" disabled={!can(selected, 'ring') || !!busy} title={why(selected, 'ring')} onclick={ring}>
-            <span class="a-icon"><Icon name="bell" size={22} /></span>
-            <span class="a-title">Find device</span>
-            <span class="a-sub">{selected.caps.includes('ring') ? 'Make it ring' : 'Not allowed'}</span>
-          </button>
-        {/if}
-      </section>
-
-      <section class="activity">
-        <h2>Recent activity</h2>
-        {#if activities.length === 0}
-          <div class="card empty-act">Nothing yet. Things you send and receive will show up here.</div>
-        {:else}
-          <ul class="card list">
-            {#each activities as a (a.id)}
-              <li>
-                <span class="row-icon" class:bad={!a.ok}><Icon name={a.ok ? activityIcon(a.kind) : 'alert'} size={17} /></span>
-                <span class="row-text">
-                  <span class="row-title">{a.title}</span>
-                  <span class="row-sub">{a.detail}</span>
-                </span>
-                {#if a.path}
-                  <button class="link" onclick={() => api.reveal(a.path!)}>
-                    <Icon name="folder" size={14} /> Show
-                  </button>
-                {/if}
-                <span class="row-time">{ago(a.ts)}</span>
-              </li>
-            {/each}
-          </ul>
-        {/if}
-      </section>
-    {/if}
-  </main>
-</div>
-
-{#if dlgOpen}
-  <div class="overlay" role="presentation" onclick={() => (dlgOpen = false)}>
-    <div class="modal" role="dialog" aria-modal="true" aria-label="Add device" tabindex="-1" onclick={(e) => e.stopPropagation()} onkeydown={() => {}}>
-      <div class="modal-head">
-        <h3>Add device</h3>
-        <button class="icon-btn" onclick={() => (dlgOpen = false)} aria-label="Close"><Icon name="x" size={16} /></button>
-      </div>
-
-      <div class="segmented">
-        <button class:on={tab === 'server'} onclick={() => setTab('server')}>Join server</button>
-        <button class:on={tab === 'show'} onclick={() => setTab('show')}>Show code</button>
-        <button class:on={tab === 'enter'} onclick={() => setTab('enter')}>Enter code</button>
-      </div>
-
-      {#if tab === 'server'}
-        <p class="hint">
-          Open your Zima Connect server’s page (or ask the household owner for an invitation) and paste the code here.
-          After this your devices find each other automatically.
-        </p>
-        <textarea class="code-input" rows="4" placeholder="zch1-…" bind:value={serverCode} spellcheck="false"></textarea>
-        <input class="name-input" placeholder="Your name (if you are the first or a new person)" bind:value={yourName} />
-        <div class="modal-actions">
-          <button class="primary" onclick={submitServer} disabled={!serverCode.trim() || working}>
-            {working ? 'Connecting…' : 'Join'}
-          </button>
-        </div>
-      {:else if tab === 'show'}
-        <p class="hint">Direct pairing without a server: on the other device choose <b>Enter code</b> and paste this. It works once and expires in 15 minutes.</p>
-        <div class="code-box">
-          {#if codeLoading}
-            <div class="spinner small"></div>
-          {:else}
-            <code>{myCode}</code>
-          {/if}
-        </div>
-        {#if myCode}<div class="qr-wrap"><Qr text={myCode} /></div>{/if}
-        <div class="modal-actions">
-          <button class="primary" onclick={() => copy(myCode, 'code')} disabled={!myCode}>
-            <Icon name={codeCopied ? 'check' : 'copy'} size={15} />
-            {codeCopied ? 'Copied' : 'Copy code'}
-          </button>
-        </div>
+            <div class="empty-line" style="border-top:0">Nothing yet. Things you send and receive show up here.</div>
+          {/each}
+        </section>
+      {:else if view === 'people' && household}
+        <HouseholdView {household} myDeviceId={identity?.id ?? ''} {say} onchange={refresh} oninvite={(code, label) => (invite = { code, label })} />
+      {:else if selected}
+        {#key selected.id}
+          <DeviceView c={selected} myName={identity?.name ?? ''} {dragging} ringing={isRinging(selected.id)} {say} {refresh} onUnpair={unpair} onRing={ring} onStopRing={stopRinging} />
+        {/key}
       {:else}
-        <p class="hint">Direct pairing without a server: paste the code shown on the other device.</p>
-        <textarea class="code-input" rows="4" placeholder="zc1-…" bind:value={enteredCode} spellcheck="false"></textarea>
-        <div class="modal-actions">
-          <button class="primary" onclick={submitPair} disabled={!enteredCode.trim() || working}>
-            {working ? 'Connecting…' : 'Pair'}
-          </button>
+        <div class="center">
+          <div class="hero">
+            <h1>{household ? `You are in ${household.info.household}` : 'Connect your devices'}</h1>
+            <p>
+              {household
+                ? 'No other devices yet. Add a phone or computer: ask the server owner for an invitation, or pair directly.'
+                : 'Join your Zima Connect server once and your devices find each other automatically. No account, no domain, no open port.'}
+            </p>
+            <div class="hero-actions">
+              <button class="btn btn-primary" onclick={() => (addOpen = household ? 'show' : 'server')}>{household ? 'Add device' : 'Join server'}</button>
+              {#if !household}<button class="btn btn-secondary" onclick={() => (addOpen = 'show')}>Pair directly</button>{/if}
+            </div>
+          </div>
         </div>
       {/if}
     </div>
-  </div>
+  </main>
+</div>
+
+{#if addOpen}
+  <AddDevice
+    start={addOpen}
+    pairedCount={contacts.length}
+    {say}
+    onclose={() => (addOpen = null)}
+    ondone={() => {
+      addOpen = null;
+      refresh();
+    }}
+  />
 {/if}
 
 {#if invite}
-  <div class="overlay" role="presentation" onclick={() => (invite = null)}>
-    <div class="modal" role="dialog" aria-modal="true" aria-label="Invitation" tabindex="-1" onclick={(e) => e.stopPropagation()} onkeydown={() => {}}>
-      <div class="modal-head">
-        <h3>{invite.label}</h3>
-        <button class="icon-btn" onclick={() => (invite = null)} aria-label="Close"><Icon name="x" size={16} /></button>
-      </div>
-      <p class="hint">
-        On the new device install Zima Connect, choose <b>Add device → Join server</b> and paste this code.
-        It works once and expires in 24 hours.
-      </p>
-      <div class="code-box"><code>{invite.code}</code></div>
-      <div class="qr-wrap"><Qr text={invite.code} /></div>
-      <div class="modal-actions">
-        <button class="primary" onclick={() => copy(invite!.code, 'invite')}>
-          <Icon name={inviteCopied ? 'check' : 'copy'} size={15} />
-          {inviteCopied ? 'Copied' : 'Copy code'}
-        </button>
-      </div>
+  <Dialog title={invite.label} onclose={() => (invite = null)}>
+    <p class="lead">On the new device install Zima Connect, choose <b>Add device, Join server</b> and paste or scan this code. It works once and expires in 24 hours.</p>
+    <div class="codebox">{invite.code}</div>
+    <div class="qr"><Qr text={invite.code} /></div>
+    <div class="actions">
+      <button class="btn btn-secondary" onclick={() => (invite = null)}>Close</button>
+      <button class="btn btn-primary" onclick={copyInvite}><Icon name={inviteCopied ? 'check' : 'copy'} size={15} /> {inviteCopied ? 'Copied' : 'Copy code'}</button>
     </div>
-  </div>
+  </Dialog>
+{/if}
+
+{#if leaving}
+  <Dialog title="Leave the server?" onclose={() => (leaving = false)}>
+    <p class="lead">This computer is removed from the household and will no longer see the other devices. You can join again with a new code.</p>
+    <div class="actions">
+      <button class="btn btn-secondary" onclick={() => (leaving = false)}>Cancel</button>
+      <button class="btn btn-danger" onclick={leave}>Leave</button>
+    </div>
+  </Dialog>
 {/if}
 
 {#if rungBy}
-  <div class="overlay ring-overlay" role="alertdialog" aria-label="Find my device">
-    <div class="modal ring-modal">
-      <div class="ring-icon"><Icon name="bell" size={34} /></div>
+  <div class="ring" role="alertdialog" aria-label="Find my device">
+    <div class="ring-box">
+      <Icon name="bell" size={26} />
       <h3>{rungBy} is looking for this computer</h3>
-      <p class="hint">It stops by itself after 30 seconds.</p>
-      <button class="primary big" onclick={silence}>Stop</button>
+      <p class="sub">It stops by itself after 30 seconds.</p>
+      <button class="btn btn-primary" onclick={silence}>Stop</button>
     </div>
   </div>
 {/if}
@@ -590,621 +382,210 @@ import Qr from '$lib/Qr.svelte';
 
 <style>
   .app {
-    display: flex;
+    display: grid;
+    grid-template-columns: 248px 1fr;
     height: 100vh;
   }
-
-  /* ── Sidebar ───────────────────────────── */
-  .sidebar {
-    width: 260px;
-    flex-shrink: 0;
-    background: var(--sidebar);
-    border-right: 1px solid var(--line);
+  .side {
     display: flex;
     flex-direction: column;
-    padding: 18px 12px 14px;
+    padding: 20px 12px 12px;
+    border-right: 1px solid var(--border);
+    background: var(--ground);
+    min-height: 0;
   }
-  .brand {
+  .mark {
     display: flex;
     align-items: center;
     gap: 10px;
-    font-weight: 650;
-    font-size: 15px;
-    padding: 2px 8px 18px;
+    padding: 0 8px 18px;
   }
-  .logo {
-    width: 26px;
-    height: 26px;
-    border-radius: 8px;
-    background: var(--accent);
-    color: #fff;
+  .glyph {
+    width: 28px;
+    height: 28px;
+    border-radius: 7px;
+    border: 1.5px solid var(--text);
     display: grid;
     place-items: center;
   }
-  .section-label {
-    font-size: 11.5px;
+  .mark b {
+    display: block;
     font-weight: 600;
-    letter-spacing: 0.02em;
-    color: var(--text-2);
-    padding: 0 10px 6px;
   }
-  .devices {
-    flex: 1;
-    overflow-y: auto;
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-  }
-  .device {
-    display: flex;
-    align-items: center;
-    gap: 11px;
-    width: 100%;
-    text-align: left;
-    padding: 9px 10px;
-    border-radius: 10px;
-    transition: background 0.12s;
-  }
-  .device:hover {
-    background: var(--hover);
-  }
-  .device.active {
-    background: var(--selected);
-  }
-  .dev-icon {
-    width: 34px;
-    height: 34px;
-    border-radius: 9px;
-    background: var(--surface);
-    box-shadow: 0 0 0 1px var(--line);
-    display: grid;
-    place-items: center;
-    color: var(--text-2);
-    flex-shrink: 0;
-  }
-  .device.active .dev-icon {
-    color: var(--accent);
-  }
-  .dev-text {
-    display: flex;
-    flex-direction: column;
-    min-width: 0;
-    flex: 1;
-  }
-  .dev-name {
-    font-weight: 550;
+  .mark span {
+    display: block;
+    font-size: 12px;
+    color: var(--muted);
+    max-width: 170px;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
   }
-  .dev-sub {
+  .nav {
+    flex: 1;
+    overflow-y: auto;
+    min-height: 0;
+  }
+  .group {
     font-size: 12px;
-    color: var(--text-2);
+    color: var(--muted);
+    padding: 18px 8px 6px;
   }
-  .dot {
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    background: var(--text-3);
-    flex-shrink: 0;
-    display: inline-block;
+  .item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    min-height: 32px;
+    margin-bottom: 2px;
+    padding: 6px 8px;
+    border-radius: 6px;
+    color: var(--muted);
+    text-align: left;
   }
-  .dot.on {
-    background: var(--ok);
+  .item:hover {
+    background: var(--raised);
+    color: var(--text);
+  }
+  .item[aria-current='page'] {
+    background: var(--active);
+    color: var(--text);
+  }
+  .item .lbl {
+    flex: 1;
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .item.add {
+    margin-top: 4px;
   }
   .empty-side {
-    color: var(--text-2);
-    padding: 6px 10px;
+    color: var(--muted);
+    padding: 4px 8px;
     margin: 0;
-    font-size: 13px;
-  }
-  .add {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 6px;
-    margin: 10px 4px 0;
-    padding: 9px 12px;
-    border-radius: 10px;
-    background: var(--surface);
-    box-shadow: 0 0 0 1px var(--line);
-    font-weight: 550;
-    transition: background 0.12s;
-  }
-  .add:hover {
-    background: var(--surface-2);
   }
   .me {
-    margin-top: 14px;
-    padding: 12px 10px 0;
-    border-top: 1px solid var(--line);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 8px;
+    border-top: 1px solid var(--border);
+    margin: 8px -12px 0;
+    padding-left: 20px;
+    padding-right: 20px;
+    text-align: left;
+    color: var(--muted);
   }
-  .me-label {
-    font-size: 11.5px;
-    color: var(--text-2);
+  .me:hover,
+  .me[aria-current='page'] {
+    color: var(--text);
+    background: var(--raised);
   }
-  .me-name {
-    font-weight: 550;
+  .who b {
+    display: block;
+    color: var(--text);
+    font-weight: 500;
+    max-width: 170px;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
   }
-
-  /* ── Main ──────────────────────────────── */
+  .who span {
+    font-size: 12px;
+  }
   .main {
-    flex: 1;
-    min-width: 0;
     overflow-y: auto;
-    padding: 32px 36px 36px;
+    min-width: 0;
+    padding: 32px 32px 48px;
+    outline: 2px solid transparent;
+    outline-offset: -8px;
+    transition: outline-color 0.12s;
+  }
+  .main.dragging {
+    outline-color: var(--hue);
+  }
+  .content {
+    max-width: 760px;
+    margin: 0 auto;
   }
   .center {
-    height: 100%;
+    min-height: 60vh;
     display: grid;
     place-items: center;
   }
   .hero {
-    max-width: 400px;
-    text-align: center;
-  }
-  .hero-icon {
-    width: 68px;
-    height: 68px;
-    border-radius: 20px;
-    background: var(--accent-soft);
-    color: var(--accent);
-    display: grid;
-    place-items: center;
-    margin: 0 auto 20px;
+    max-width: 420px;
   }
   .hero h1 {
     margin: 0 0 8px;
     font-size: 24px;
-    font-weight: 650;
+    line-height: 32px;
+    font-weight: 600;
     letter-spacing: -0.01em;
   }
   .hero p {
-    margin: 0 0 24px;
-    color: var(--text-2);
-    font-size: 14.5px;
+    color: var(--muted);
+    margin: 0 0 20px;
   }
-
-  .head {
+  .hero-actions {
     display: flex;
-    align-items: center;
-    gap: 16px;
-    margin-bottom: 26px;
-  }
-  .head-icon {
-    width: 60px;
-    height: 60px;
-    border-radius: 16px;
-    background: var(--surface);
-    box-shadow: var(--shadow), 0 0 0 1px var(--line);
-    display: grid;
-    place-items: center;
-    color: var(--accent);
-  }
-  .head-text {
-    flex: 1;
-    min-width: 0;
-  }
-  .head h1 {
-    margin: 0;
-    font-size: 24px;
-    font-weight: 650;
-    letter-spacing: -0.01em;
-  }
-  .status {
-    display: flex;
-    align-items: center;
-    gap: 7px;
-    color: var(--text-2);
-    margin-top: 2px;
-  }
-  .sep {
-    color: var(--text-3);
-  }
-
-  .actions {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 14px;
-    margin-bottom: 34px;
-  }
-  .action {
-    background: var(--surface);
-    border-radius: var(--radius);
-    box-shadow: var(--shadow), 0 0 0 1px var(--line);
-    padding: 18px;
-    text-align: left;
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    transition: transform 0.12s, box-shadow 0.12s;
-  }
-  .action:hover:not(:disabled) {
-    transform: translateY(-1px);
-    box-shadow: var(--shadow-lg), 0 0 0 1px var(--line);
-  }
-  .action:active:not(:disabled) {
-    transform: translateY(0);
-  }
-  .action:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
-  .a-icon {
-    width: 40px;
-    height: 40px;
-    border-radius: 11px;
-    background: var(--accent-soft);
-    color: var(--accent);
-    display: grid;
-    place-items: center;
-    margin-bottom: 12px;
-  }
-  .a-title {
-    font-weight: 600;
-    font-size: 14.5px;
-  }
-  .a-sub {
-    color: var(--text-2);
-    font-size: 12.5px;
-  }
-
-  .activity h2 {
-    font-size: 15px;
-    font-weight: 650;
-    margin: 0 0 12px;
-  }
-  .card {
-    background: var(--surface);
-    border-radius: var(--radius);
-    box-shadow: var(--shadow), 0 0 0 1px var(--line);
-  }
-  .empty-act {
-    padding: 22px;
-    color: var(--text-2);
-    text-align: center;
-  }
-  .list {
-    list-style: none;
-    margin: 0;
-    padding: 4px 0;
-  }
-  .list li {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    padding: 11px 16px;
-  }
-  .list li + li {
-    border-top: 1px solid var(--line);
-  }
-  .row-icon {
-    width: 32px;
-    height: 32px;
-    border-radius: 9px;
-    background: var(--accent-soft);
-    color: var(--accent);
-    display: grid;
-    place-items: center;
-    flex-shrink: 0;
-  }
-  .row-icon.bad {
-    background: color-mix(in srgb, var(--warn) 14%, transparent);
-    color: var(--warn);
-  }
-  .row-text {
-    flex: 1;
-    min-width: 0;
-    display: flex;
-    flex-direction: column;
-  }
-  .row-title {
-    font-weight: 550;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-  .row-sub {
-    color: var(--text-2);
-    font-size: 12.5px;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-  .row-time {
-    color: var(--text-3);
-    font-size: 12px;
-    white-space: nowrap;
-  }
-
-  /* ── Buttons ───────────────────────────── */
-  .primary {
-    display: inline-flex;
-    align-items: center;
-    gap: 7px;
-    background: var(--accent);
-    color: var(--accent-text);
-    padding: 8px 16px;
-    border-radius: 9px;
-    font-weight: 600;
-    transition: filter 0.12s;
-  }
-  .primary:hover:not(:disabled) {
-    filter: brightness(1.08);
-  }
-  .primary:disabled {
-    opacity: 0.45;
-    cursor: not-allowed;
-  }
-  .primary.big {
-    padding: 11px 26px;
-    font-size: 15px;
-    border-radius: 11px;
-  }
-  .ghost {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    padding: 7px 12px;
-    border-radius: 9px;
-    color: var(--text-2);
-  }
-  .ghost:hover {
-    background: var(--hover);
-    color: var(--warn);
-  }
-  .link {
-    display: inline-flex;
-    align-items: center;
-    gap: 5px;
-    color: var(--accent);
-    font-size: 12.5px;
-    font-weight: 550;
-    padding: 4px 8px;
-    border-radius: 7px;
-  }
-  .link:hover {
-    background: var(--accent-soft);
-  }
-  .icon-btn {
-    width: 28px;
-    height: 28px;
-    border-radius: 50%;
-    display: grid;
-    place-items: center;
-    color: var(--text-2);
-  }
-  .icon-btn:hover {
-    background: var(--hover);
-  }
-
-  /* ── Modal ─────────────────────────────── */
-  .overlay {
-    position: fixed;
-    inset: 0;
-    background: var(--overlay);
-    display: grid;
-    place-items: center;
-    animation: fade 0.15s ease-out;
-  }
-  .modal {
-    width: 440px;
-    max-width: calc(100vw - 40px);
-    background: var(--surface);
-    border-radius: 18px;
-    box-shadow: var(--shadow-lg), 0 0 0 1px var(--line);
-    padding: 22px 24px 24px;
-    animation: pop 0.18s ease-out;
-  }
-  .modal-head {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-bottom: 16px;
-  }
-  .modal h3 {
-    margin: 0;
-    font-size: 18px;
-    font-weight: 650;
-  }
-  .segmented {
-    display: flex;
-    background: var(--hover);
-    border-radius: 10px;
-    padding: 3px;
-    margin-bottom: 16px;
-  }
-  .segmented button {
-    flex: 1;
-    padding: 6px 10px;
-    border-radius: 8px;
-    font-weight: 550;
-    color: var(--text-2);
-  }
-  .segmented button.on {
-    background: var(--surface);
-    color: var(--text);
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
-  }
-  .hint {
-    margin: 0 0 12px;
-    color: var(--text-2);
-    font-size: 13px;
-  }
-  .code-box {
-    min-height: 92px;
-    display: grid;
-    place-items: center;
-    background: var(--bg);
-    border-radius: 12px;
-    padding: 12px 14px;
-    box-shadow: inset 0 0 0 1px var(--line);
-  }
-  .code-box code {
-    font-family: var(--mono);
-    font-size: 11.5px;
-    word-break: break-all;
-    user-select: all;
-    max-height: 120px;
-    overflow-y: auto;
-    color: var(--text);
-  }
-  .code-input {
-    width: 100%;
-    resize: none;
-    font-family: var(--mono);
-    font-size: 11.5px;
-    padding: 12px 14px;
-    border-radius: 12px;
-    border: 0;
-    background: var(--bg);
-    color: var(--text);
-    box-shadow: inset 0 0 0 1px var(--line);
-    user-select: text;
-  }
-  .modal-actions {
-    display: flex;
-    justify-content: flex-end;
-    margin-top: 16px;
-  }
-
-  /* ── Toast / spinner ───────────────────── */
-  .toast {
-    position: fixed;
-    left: 50%;
-    bottom: 26px;
-    transform: translateX(-50%);
-    background: var(--text);
-    color: var(--bg);
-    padding: 10px 18px;
-    border-radius: 12px;
-    font-weight: 550;
-    box-shadow: var(--shadow-lg);
-    max-width: 80vw;
-    animation: rise 0.2s ease-out;
-  }
-  .toast.error {
-    background: var(--warn);
-    color: #fff;
+    gap: 8px;
   }
   .spinner {
-    width: 26px;
-    height: 26px;
+    width: 22px;
+    height: 22px;
     border-radius: 50%;
-    border: 3px solid var(--line);
-    border-top-color: var(--accent);
+    border: 2px solid var(--control);
+    border-top-color: var(--text);
     animation: spin 0.8s linear infinite;
   }
-  .spinner.small {
-    width: 20px;
-    height: 20px;
-  }
-
   @keyframes spin {
     to {
       transform: rotate(360deg);
     }
   }
-  @keyframes fade {
-    from {
-      opacity: 0;
-    }
-  }
-  @keyframes pop {
-    from {
-      opacity: 0;
-      transform: scale(0.97);
-    }
-  }
-  @keyframes rise {
-    from {
-      opacity: 0;
-      transform: translate(-50%, 8px);
-    }
-  }
-  @media (prefers-reduced-motion: reduce) {
-    * {
-      animation: none !important;
-      transition: none !important;
-    }
-  }
-
-  .nav-item {
-    display: flex;
-    align-items: center;
-    gap: 9px;
-    padding: 9px 12px;
-    margin: 6px 4px 0;
-    border-radius: 10px;
-    font-weight: 550;
-    color: var(--text-2);
-  }
-  .nav-item:hover {
-    background: var(--hover);
-  }
-  .nav-item.active {
-    background: var(--selected);
-    color: var(--accent);
-  }
-  .section-label {
-    padding-top: 10px;
-  }
-  .textbtn {
-    display: block;
-    margin: 14px auto 0;
-    color: var(--accent);
-    font-weight: 550;
-  }
-  .textbtn:hover {
-    text-decoration: underline;
-  }
-  .modal .code-input {
-    user-select: text;
-  }
-  .name-input {
-    width: 100%;
-    margin-top: 10px;
-    font: inherit;
-    padding: 9px 12px;
-    border-radius: 10px;
-    border: 0;
-    background: var(--bg);
-    color: var(--text);
-    box-shadow: inset 0 0 0 1px var(--line);
-    user-select: text;
-  }
-  .qr-wrap {
-    margin-top: 14px;
-  }
-  .action.ringing .a-icon {
-    background: color-mix(in srgb, var(--warn) 14%, transparent);
-    color: var(--warn);
-  }
-  .ring-modal {
-    text-align: center;
-    padding: 32px 28px 28px;
-  }
-  .ring-modal h3 {
-    margin: 14px 0 6px;
-    font-size: 19px;
-  }
-  .ring-icon {
-    width: 72px;
-    height: 72px;
-    margin: 0 auto;
-    border-radius: 50%;
+  .ring {
+    position: fixed;
+    inset: 0;
+    background: var(--overlay);
     display: grid;
     place-items: center;
-    background: var(--accent-soft);
-    color: var(--accent);
-    animation: pulse 1.2s ease-in-out infinite;
+    z-index: 80;
   }
-  @keyframes pulse {
-    50% {
-      transform: scale(1.08);
-    }
+  .ring-box {
+    background: var(--surface);
+    border-radius: 12px;
+    box-shadow: var(--float);
+    padding: 26px 30px;
+    text-align: center;
+    display: grid;
+    gap: 8px;
+    justify-items: center;
+  }
+  .ring-box h3 {
+    margin: 4px 0 0;
+    font-size: 16px;
+  }
+  .ring-box p {
+    margin: 0 0 8px;
+  }
+  .toast {
+    position: fixed;
+    left: 50%;
+    bottom: 24px;
+    transform: translateX(-50%);
+    background: var(--primary);
+    color: var(--primary-ink);
+    padding: 10px 16px;
+    border-radius: 8px;
+    box-shadow: var(--float);
+    max-width: 520px;
+    z-index: 90;
+  }
+  .toast.error {
+    background: var(--negative);
+    color: #fff;
   }
 </style>

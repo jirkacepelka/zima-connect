@@ -1,7 +1,8 @@
 # Zima Connect household server.
 # Host networking lets devices on your home network find the server directly
 # (mDNS); outside the home they reach it through the relay. No open ports,
-# no domain and no account are needed.
+# no domain and no account are needed. Optional: with a public IP address you can run
+# your own relay from the dashboard (Server, Relay); forward TCP port 3340 to this machine.
 services:
   zima-connect:
     image: ghcr.io/jirkacepelka/zima-connect-server:latest

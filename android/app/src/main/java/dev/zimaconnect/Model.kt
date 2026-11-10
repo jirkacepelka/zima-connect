@@ -25,6 +25,8 @@ data class Contact(
     val caps: Set<String>,
     val online: Boolean = false,
     val rttMs: Long? = null,
+    /** Battery (percent, charging) as last reported by that device. */
+    val battery: Pair<Int, Boolean>? = null,
 )
 
 data class User(val id: String, val name: String, val owner: Boolean)
@@ -59,8 +61,37 @@ val CAPS = listOf(
     "clipboard" to "Clipboard",
     "notifications" to "Notifications",
     "ring" to "Find my device",
-    "calls" to "Calls (coming soon)",
+    "calls" to "Voice calls",
+    "remote" to "Remote control",
+    "status" to "Battery and status",
 )
+
+data class ShelfItem(
+    val id: String,
+    val name: String,
+    val size: Long,
+    val ownerName: String,
+    val everyone: Boolean,
+    val toUsers: List<String>,
+    val mine: Boolean,
+)
+
+fun parseShelf(v: Any?, users: List<User>): List<ShelfItem> {
+    val arr = v as? JSONArray ?: return emptyList()
+    return arr.objects().map { o ->
+        val a = o.getJSONObject("audience")
+        val ids = if (a.getString("to") == "users") a.getJSONArray("ids").let { x -> (0 until x.length()).map { x.getString(it) } } else emptyList()
+        ShelfItem(
+            id = o.getString("id"),
+            name = o.getString("name"),
+            size = o.getLong("size"),
+            ownerName = o.getString("owner_user_name"),
+            everyone = a.getString("to") == "everyone",
+            toUsers = ids.map { id -> users.firstOrNull { it.id == id }?.name ?: "someone" },
+            mine = o.optBoolean("mine"),
+        )
+    }
+}
 
 private fun JSONArray.objects(): List<JSONObject> = (0 until length()).map { getJSONObject(it) }
 private fun JSONObject.strOrNull(k: String): String? = if (isNull(k)) null else getString(k)
@@ -102,6 +133,7 @@ fun parseContacts(v: Any?, previous: List<Contact>): List<Contact> {
             caps = caps,
             online = old?.online ?: false,
             rttMs = old?.rttMs,
+            battery = AppModel.batteries[id],
         )
     }
 }
@@ -114,6 +146,10 @@ object AppModel {
     var myId by mutableStateOf("")
     var deviceName by mutableStateOf("")
     var startError by mutableStateOf<String?>(null)
+
+    /** Battery levels other devices told us about: device id to (percent, charging). */
+    var batteries by mutableStateOf(mapOf<String, Pair<Int, Boolean>>())
+    var shelf by mutableStateOf(listOf<ShelfItem>())
 
     /** Who is making this phone ring right now (null = silent). */
     var ringingFrom by mutableStateOf<String?>(null)
@@ -166,7 +202,43 @@ object AppModel {
             }.awaitAll()
         }
         // Keep whatever changed meanwhile (e.g. a contact that just joined).
-        contacts = contacts.map { c -> pinged.firstOrNull { it.id == c.id } ?: c }
+        contacts = contacts.map { c -> (pinged.firstOrNull { it.id == c.id } ?: c).copy(battery = batteries[c.id]) }
+    }
+
+    suspend fun renameDevice(name: String) {
+        Api.call("rename_device", Api.args("device_name" to name))
+        deviceName = name.trim()
+        refresh()
+    }
+
+    suspend fun sendUrl(peer: Contact, url: String) {
+        Api.call("send_url", Api.args("id" to peer.id, "text" to url))
+        log("link", "Link sent", "to ${peer.name}")
+    }
+
+    suspend fun sendRemote(peer: Contact, input: JSONObject) {
+        Api.call("send_remote", Api.args("id" to peer.id, "input" to input))
+    }
+
+    suspend fun refreshShelf() {
+        shelf = parseShelf(Api.call("shelf_list"), household?.users ?: emptyList())
+    }
+
+    suspend fun shelfPut(file: File, label: String, audience: JSONObject) {
+        Api.call("shelf_put", Api.args("path" to file.absolutePath, "audience" to audience))
+        log("shelf", "Put $label on the shelf", "for others to pick up")
+        refreshShelf()
+    }
+
+    suspend fun shelfGet(item: ShelfItem): String {
+        val path = Api.call("shelf_get", Api.args("id" to item.id)) as String
+        log("file", "Took ${item.name} from the shelf", "")
+        return path
+    }
+
+    suspend fun shelfDelete(item: ShelfItem) {
+        Api.call("shelf_delete", Api.args("id" to item.id))
+        refreshShelf()
     }
 
     suspend fun sendClipboard(peer: Contact, text: String): Delivery {

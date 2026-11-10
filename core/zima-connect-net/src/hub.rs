@@ -9,7 +9,7 @@ use anyhow::{anyhow, bail, Result};
 use iroh::SecretKey;
 use serde::{Deserialize, Serialize};
 
-use crate::household::{AdminOp, Device, Role, Rule, SignedSnapshot, Snapshot, User};
+use crate::household::{AdminOp, Device, RelaySetting, Role, Rule, SignedSnapshot, Snapshot, User};
 
 const INVITE_TTL_SECS: u64 = 24 * 60 * 60;
 
@@ -33,6 +33,8 @@ struct HubData {
     devices: Vec<Device>,
     rules: Vec<Rule>,
     invites: HashMap<String, Invite>,
+    #[serde(default)]
+    relay: Option<RelaySetting>,
 }
 
 /// Pending invite as shown in the dashboard.
@@ -54,6 +56,7 @@ pub struct HubView {
     pub devices: Vec<Device>,
     pub rules: Vec<Rule>,
     pub invites: Vec<InviteView>,
+    pub relay: Option<RelaySetting>,
 }
 
 /// Result of an admin operation.
@@ -123,7 +126,14 @@ impl HubCore {
             users: d.users.clone(),
             devices: d.devices.clone(),
             rules: d.rules.clone(),
+            relay: d.relay.clone(),
         }
+    }
+
+    /// Current household data (policy lookups).
+    pub fn snapshot(&self) -> Snapshot {
+        let d = self.data.lock().unwrap();
+        self.snapshot_of(&d)
     }
 
     pub fn signed(&self) -> Result<SignedSnapshot> {
@@ -181,6 +191,7 @@ impl HubCore {
             devices: d.devices.clone(),
             rules: d.rules.clone(),
             invites,
+            relay: d.relay.clone(),
         }
     }
 
@@ -293,6 +304,24 @@ impl HubCore {
     /// e.g. to remove a lost owner phone.
     pub fn apply_as_admin(&self, op: &AdminOp) -> Result<Outcome> {
         self.apply_with(op, true)
+    }
+
+    /// A device renames itself.
+    pub fn rename_device(&self, device_id: &str, name: &str) -> Result<()> {
+        let n: String = name.trim().chars().take(40).collect();
+        if n.is_empty() {
+            bail!("name cannot be empty");
+        }
+        let mut d = self.data.lock().unwrap();
+        let Some(x) = d.devices.iter_mut().find(|x| x.id == device_id) else {
+            bail!("not part of this household")
+        };
+        if x.name != n {
+            x.name = n;
+            d.version += 1;
+            self.save(&d)?;
+        }
+        Ok(())
     }
 
     /// A device removes itself.
@@ -438,6 +467,21 @@ impl HubCore {
                     bail!("unknown person")
                 };
                 u.name = n.to_string();
+                Outcome::Changed
+            }
+            AdminOp::RenameDevice { id, name } => {
+                let n = name.trim();
+                if n.is_empty() {
+                    bail!("name cannot be empty");
+                }
+                let Some(x) = d.devices.iter_mut().find(|x| &x.id == id) else {
+                    bail!("unknown device")
+                };
+                x.name = n.chars().take(40).collect();
+                Outcome::Changed
+            }
+            AdminOp::SetRelay { relay } => {
+                d.relay = relay.clone().filter(|r| !r.url.trim().is_empty());
                 Outcome::Changed
             }
         };

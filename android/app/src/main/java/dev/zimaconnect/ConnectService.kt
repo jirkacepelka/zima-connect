@@ -9,6 +9,11 @@ import android.content.ClipboardManager
 import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
+import android.net.Uri
+import android.media.AudioManager
+import android.os.BatteryManager
+import android.view.KeyEvent
 import android.media.AudioAttributes
 import android.media.MediaPlayer
 import android.media.RingtoneManager
@@ -58,6 +63,13 @@ class ConnectService : Service() {
                 launch {
                     runCatching { Api.call("pull_inbox") }
                     AppModel.refresh()
+                }
+                launch {
+                    delay(8_000)
+                    while (isActive) {
+                        runCatching { pushBattery() }
+                        delay(5 * 60_000L)
+                    }
                 }
                 while (isActive) {
                     val raw = Native.nextEvent(30_000)
@@ -117,12 +129,62 @@ class ConnectService : Service() {
                 Ringer.start(this, from)
             }
             "ring_stop" -> Ringer.stop(this)
+            "open_url" -> {
+                val from = ev.getString("from_name")
+                val url = ev.getString("url")
+                AppModel.log("link", "Link from $from", url)
+                val view = PendingIntent.getActivity(
+                    this, nextId, Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                    PendingIntent.FLAG_IMMUTABLE,
+                )
+                notify("Link from $from", url, view)
+            }
+            "battery" -> {
+                val from = ev.getString("from")
+                AppModel.batteries = AppModel.batteries + (from to (ev.getInt("percent") to ev.getBoolean("charging")))
+                AppModel.refresh()
+            }
+            "remote" -> remote(ev.getJSONObject("input"))
             "paired", "joined", "household_updated" -> AppModel.refresh()
         }
     }
 
-    private fun notify(title: String, text: String) {
-        val open = PendingIntent.getActivity(
+    /** Media keys and volume from another device (a touchpad would need an accessibility service). */
+    private fun remote(input: JSONObject) {
+        if (input.optString("k") != "media") return
+        val audio = getSystemService(AudioManager::class.java)
+        fun key(code: Int) {
+            audio.dispatchMediaKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, code))
+            audio.dispatchMediaKeyEvent(KeyEvent(KeyEvent.ACTION_UP, code))
+        }
+        when (input.optString("action")) {
+            "play_pause" -> key(KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE)
+            "next" -> key(KeyEvent.KEYCODE_MEDIA_NEXT)
+            "prev" -> key(KeyEvent.KEYCODE_MEDIA_PREVIOUS)
+            "vol_up" -> audio.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_RAISE, AudioManager.FLAG_SHOW_UI)
+            "vol_down" -> audio.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_LOWER, AudioManager.FLAG_SHOW_UI)
+            "mute" -> audio.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_TOGGLE_MUTE, AudioManager.FLAG_SHOW_UI)
+        }
+    }
+
+    /** Tell my other devices how full the battery is, every few minutes. */
+    private suspend fun pushBattery() {
+        val i = registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED)) ?: return
+        val level = i.getIntExtra(BatteryManager.EXTRA_LEVEL, -1)
+        val scale = i.getIntExtra(BatteryManager.EXTRA_SCALE, 100)
+        if (level < 0) return
+        val percent = level * 100 / scale
+        val status = i.getIntExtra(BatteryManager.EXTRA_STATUS, -1)
+        val charging = status == BatteryManager.BATTERY_STATUS_CHARGING || status == BatteryManager.BATTERY_STATUS_FULL
+        for (c in AppModel.contacts.filter { it.mine && it.online && "status" in it.caps }) {
+            runCatching {
+                Api.call("send_battery", Api.args("id" to c.id, "percent" to percent, "charging" to charging))
+            }
+        }
+    }
+
+    private fun notify(title: String, text: String, tap: PendingIntent? = null) {
+        val open = tap ?: PendingIntent.getActivity(
             this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE,
         )
         val n = NotificationCompat.Builder(this, ZimaConnectApp.CH_EVENTS)

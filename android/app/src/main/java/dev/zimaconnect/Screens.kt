@@ -42,6 +42,7 @@ import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Dns
 import androidx.compose.material.icons.outlined.Groups
 import androidx.compose.material.icons.outlined.InsertDriveFile
+import androidx.compose.material.icons.outlined.Inventory2
 import androidx.compose.material.icons.outlined.Laptop
 import androidx.compose.material.icons.outlined.NotificationsActive
 import androidx.compose.material.icons.outlined.QrCodeScanner
@@ -103,6 +104,7 @@ sealed interface Screen {
     data object Home : Screen
     data class Device(val id: String) : Screen
     data object Household : Screen
+    data object Shelf : Screen
     data object Settings : Screen
 }
 
@@ -146,7 +148,7 @@ private fun queryName(ctx: Context, uri: Uri): String? =
     }
 
 /** Copy a picked/shared content Uri into our cache so the Rust node can read it by path. */
-private fun copyToCache(ctx: Context, uri: Uri): Pair<File, String> {
+internal fun copyToCache(ctx: Context, uri: Uri): Pair<File, String> {
     val name = (queryName(ctx, uri) ?: "file").replace(Regex("[\\\\/:*?\"<>|]"), "_")
     val dir = File(ctx.cacheDir, "outgoing").apply { mkdirs() }
     val f = File(dir, name)
@@ -190,6 +192,7 @@ fun App(shared: List<Uri>, clearShared: () -> Unit) {
         Screen.Home -> "Zima Connect"
         is Screen.Device -> AppModel.contacts.firstOrNull { it.id == s.id }?.name ?: "Device"
         Screen.Household -> AppModel.household?.name ?: "Household"
+        Screen.Shelf -> "Shelf"
         Screen.Settings -> "Settings"
     }
 
@@ -210,6 +213,9 @@ fun App(shared: List<Uri>, clearShared: () -> Unit) {
                 actions = {
                     if (screen is Screen.Home) {
                         if (AppModel.household != null) {
+                            IconButton(onClick = { screen = Screen.Shelf }) {
+                                Icon(Icons.Outlined.Inventory2, contentDescription = "Shelf")
+                            }
                             IconButton(onClick = { screen = Screen.Household }) {
                                 Icon(Icons.Outlined.Groups, contentDescription = "Household")
                             }
@@ -228,7 +234,7 @@ fun App(shared: List<Uri>, clearShared: () -> Unit) {
                     icon = { Icon(Icons.Outlined.Add, null) },
                     text = { Text("Add device") },
                     containerColor = MaterialTheme.colorScheme.primary,
-                    contentColor = Color.White,
+                    contentColor = MaterialTheme.colorScheme.onPrimary,
                 )
             }
         },
@@ -259,6 +265,7 @@ fun App(shared: List<Uri>, clearShared: () -> Unit) {
                     if (c == null) screen = Screen.Home else DeviceScreen(c, ::say)
                 }
                 Screen.Household -> HouseholdScreen(::say) { code, label -> invite = code to label }
+                Screen.Shelf -> ShelfScreen(::say)
                 Screen.Settings -> SettingsScreen(::say) { screen = Screen.Home }
             }
         }
@@ -432,6 +439,7 @@ private fun DeviceScreen(c: Contact, say: (String) -> Unit) {
                             append(if (c.online) "Connected${c.rttMs?.let { " · $it ms" } ?: ""}" else "Not reachable right now")
                             append(" · ${platformLabel(c.platform)}")
                             if (!c.mine && c.userName != null) append(" · ${c.userName}’s device")
+                            c.battery?.let { append(" · battery ${it.first} %${if (it.second) " charging" else ""}") }
                         },
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -497,6 +505,8 @@ private fun DeviceScreen(c: Contact, say: (String) -> Unit) {
                     }
                 }
             }
+            LinkCard(c, say)
+            RemoteControl(c, say)
             if (c.direct) {
                 TextButton(onClick = {
                     scope.launch {
@@ -535,7 +545,7 @@ private fun DeviceScreen(c: Contact, say: (String) -> Unit) {
 
 /** Returns a function that opens the system file picker and calls [onPicked] with the result. */
 @Composable
-private fun rememberLauncherForFile(onPicked: (Uri) -> Unit): () -> Unit {
+internal fun rememberLauncherForFile(onPicked: (Uri) -> Unit): () -> Unit {
     val launcher = androidx.activity.compose.rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) onPicked(uri)
     }
@@ -744,6 +754,8 @@ private fun SettingsScreen(say: (String) -> Unit, onLeft: () -> Unit) {
 
     LazyColumn(contentPadding = PaddingValues(16.dp)) {
         item {
+            RenameCard(say)
+            Spacer(Modifier.height(16.dp))
             Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), modifier = Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(16.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {

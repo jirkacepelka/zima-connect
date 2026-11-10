@@ -16,7 +16,7 @@ use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
-use zima_connect_net::{AdminOp, Node, NodeConfig};
+use zima_connect_net::{AdminOp, Node, NodeConfig, RelaySetting};
 
 const DASHBOARD: &str = include_str!("dashboard.html");
 const FONT_SANS: &[u8] = include_bytes!("fonts/Geist-Variable.woff2");
@@ -40,14 +40,66 @@ struct AdminRecord {
     hash: String,
 }
 
+/// The server's own relay (so devices need no public relay at all).
+#[derive(Serialize, Deserialize, Clone, Default)]
+struct RelayCfg {
+    enabled: bool,
+    /// Public address devices use to reach this relay (IP or name).
+    host: String,
+    port: u16,
+    /// Devices use only this relay, never the public ones.
+    exclusive: bool,
+}
+
 struct AppState {
     node: Node,
+    relay_path: PathBuf,
+    relay_cfg: Mutex<RelayCfg>,
+    relay_srv: tokio::sync::Mutex<Option<iroh_relay::server::Server>>,
     admin_path: PathBuf,
     admin: Mutex<Option<AdminRecord>>,
     sessions: Mutex<HashSet<String>>,
     /// device id -> round-trip ms (None = unreachable), refreshed in the background.
     probes: Mutex<HashMap<String, Option<u64>>>,
     started: Instant,
+}
+
+impl AppState {
+    /// (Re)start or stop the relay server according to the settings.
+    async fn apply_relay(&self) -> Result<(), String> {
+        let cfg = self.relay_cfg.lock().unwrap().clone();
+        let mut srv = self.relay_srv.lock().await;
+        if let Some(old) = srv.take() {
+            let _ = old.shutdown().await;
+        }
+        if !cfg.enabled {
+            return Ok(());
+        }
+        let addr = std::net::SocketAddr::from(([0, 0, 0, 0], cfg.port));
+        let mut c = iroh_relay::server::ServerConfig::default();
+        c.relay = Some(iroh_relay::server::RelayConfig::new(addr));
+        match iroh_relay::server::Server::spawn(c).await {
+            Ok(s) => {
+                *srv = Some(s);
+                Ok(())
+            }
+            Err(e) => Err(format!(
+                "could not start the relay on port {}: {e}",
+                cfg.port
+            )),
+        }
+    }
+
+    fn relay_setting(&self) -> Option<RelaySetting> {
+        let c = self.relay_cfg.lock().unwrap();
+        if !c.enabled || c.host.trim().is_empty() {
+            return None;
+        }
+        Some(RelaySetting {
+            url: format!("http://{}:{}", c.host.trim(), c.port),
+            exclusive: c.exclusive,
+        })
+    }
 }
 
 fn env(key: &str, default: &str) -> String {
@@ -259,9 +311,19 @@ async fn state(State(st): St, headers: HeaderMap) -> Response {
         "devices": devices,
         "rules": d.rules,
         "invites": invites,
+        "shelf": st.node.hub_shelf().unwrap_or_default(),
         "queue": { "items": queued, "bytes": queued_bytes },
         "uptime_secs": st.started.elapsed().as_secs(),
         "relay": st.node.wait_online(Duration::from_millis(1)).await,
+        "own_relay": {
+            "enabled": st.relay_cfg.lock().unwrap().enabled,
+            "host": st.relay_cfg.lock().unwrap().host,
+            "port": st.relay_cfg.lock().unwrap().port,
+            "exclusive": st.relay_cfg.lock().unwrap().exclusive,
+            "running": st.relay_srv.lock().await.is_some(),
+            "detected": st.node.public_ips(),
+            "announced": d.relay.as_ref().map(|r| r.url.clone()),
+        },
         "now": now(),
     }))
     .into_response()
@@ -285,6 +347,71 @@ async fn admin(State(st): St, headers: HeaderMap, Json(b): Json<AdminBody>) -> R
         Ok(None) => Json(json!({ "ok": true })).into_response(),
         Err(e) => err(StatusCode::BAD_REQUEST, &format!("{e}")),
     }
+}
+
+#[derive(Deserialize)]
+struct RelayBody {
+    enabled: bool,
+    host: String,
+    port: u16,
+    exclusive: bool,
+}
+
+async fn set_relay(State(st): St, headers: HeaderMap, Json(b): Json<RelayBody>) -> Response {
+    if !st.authed(&headers) {
+        return err(StatusCode::UNAUTHORIZED, "sign in first");
+    }
+    let host = b.host.trim().to_string();
+    if b.enabled {
+        if host.is_empty() || host.contains(['/', ' ', '@']) {
+            return err(
+                StatusCode::BAD_REQUEST,
+                "enter the public address of this server",
+            );
+        }
+        if b.port < 1024 {
+            return err(StatusCode::BAD_REQUEST, "use a port from 1024 up");
+        }
+    }
+    {
+        let mut c = st.relay_cfg.lock().unwrap();
+        *c = RelayCfg {
+            enabled: b.enabled,
+            host,
+            port: if b.port == 0 { 3340 } else { b.port },
+            exclusive: b.exclusive,
+        };
+        let _ = std::fs::write(
+            &st.relay_path,
+            serde_json::to_vec_pretty(&*c).unwrap_or_default(),
+        );
+    }
+    if let Err(e) = st.apply_relay().await {
+        return err(StatusCode::BAD_REQUEST, &e);
+    }
+    match st
+        .node
+        .hub_admin(AdminOp::SetRelay {
+            relay: st.relay_setting(),
+        })
+        .await
+    {
+        Ok(_) => Json(json!({ "ok": true })).into_response(),
+        Err(e) => err(StatusCode::BAD_REQUEST, &format!("{e}")),
+    }
+}
+
+#[derive(Deserialize)]
+struct ShelfDelete {
+    id: String,
+}
+
+async fn shelf_delete(State(st): St, headers: HeaderMap, Json(b): Json<ShelfDelete>) -> Response {
+    if !st.authed(&headers) {
+        return err(StatusCode::UNAUTHORIZED, "sign in first");
+    }
+    st.node.hub_shelf_delete(&b.id);
+    Json(json!({ "ok": true })).into_response()
 }
 
 /// Keep device reachability fresh without blocking the dashboard.
@@ -337,14 +464,38 @@ async fn main() -> anyhow::Result<()> {
         .ok()
         .and_then(|b| serde_json::from_slice(&b).ok());
 
+    let relay_path = data_dir.join("relay.json");
+    let relay_cfg: RelayCfg = std::fs::read(&relay_path)
+        .ok()
+        .and_then(|b| serde_json::from_slice(&b).ok())
+        .unwrap_or(RelayCfg {
+            enabled: false,
+            host: String::new(),
+            port: 3340,
+            exclusive: false,
+        });
+
     let st = Arc::new(AppState {
         node: node.clone(),
+        relay_path,
+        relay_cfg: Mutex::new(relay_cfg),
+        relay_srv: tokio::sync::Mutex::new(None),
         admin_path,
         admin: Mutex::new(admin_rec),
         sessions: Mutex::new(HashSet::new()),
         probes: Mutex::new(HashMap::new()),
         started: Instant::now(),
     });
+
+    if st.relay_cfg.lock().unwrap().enabled {
+        match st.apply_relay().await {
+            Ok(()) => println!(
+                "Own relay running on port {}.",
+                st.relay_cfg.lock().unwrap().port
+            ),
+            Err(e) => println!("Warning: {e}"),
+        }
+    }
 
     let app = Router::new()
         .route("/", get(|| async { Html(DASHBOARD) }))
@@ -364,6 +515,8 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/password", post(change_password))
         .route("/api/state", get(state))
         .route("/api/admin", post(admin))
+        .route("/api/relay", post(set_relay))
+        .route("/api/shelf/delete", post(shelf_delete))
         .with_state(st.clone());
 
     // Serve the page right away; the relay connection can take a moment.

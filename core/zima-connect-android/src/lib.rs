@@ -18,7 +18,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use tokio::runtime::Runtime;
 use tokio::sync::broadcast;
-use zima_connect_net::{AdminOp, Event, Node, NodeConfig};
+use zima_connect_net::{AdminOp, Audience, Event, Node, NodeConfig, RemoteInput};
 
 static RT: OnceLock<Runtime> = OnceLock::new();
 static NODE: OnceLock<Node> = OnceLock::new();
@@ -65,6 +65,14 @@ struct Args {
     body: String,
     #[serde(default)]
     op: Option<AdminOp>,
+    #[serde(default)]
+    audience: Option<Audience>,
+    #[serde(default)]
+    input: Option<RemoteInput>,
+    #[serde(default)]
+    percent: u8,
+    #[serde(default)]
+    charging: bool,
 }
 
 /// Run one API call. Public so it can be tested on the desktop.
@@ -143,6 +151,33 @@ async fn dispatch(method: &str, args_json: &str) -> anyhow::Result<Value> {
         }
         "ring_stop" => {
             n.ring_stop(&a.id).await?;
+            Value::Null
+        }
+        "rename_device" => {
+            n.rename_device(&a.device_name).await?;
+            Value::Null
+        }
+        "send_url" => {
+            n.send_url(&a.id, &a.text).await?;
+            Value::Null
+        }
+        "send_battery" => {
+            n.send_battery(&a.id, a.percent, a.charging).await?;
+            Value::Null
+        }
+        "send_remote" => {
+            let input = a.input.ok_or_else(|| anyhow::anyhow!("missing input"))?;
+            n.send_remote(&a.id, input).await?;
+            Value::Null
+        }
+        "shelf_list" => serde_json::to_value(n.shelf_list().await?)?,
+        "shelf_put" => {
+            let aud = a.audience.unwrap_or(Audience::Everyone);
+            serde_json::to_value(n.shelf_put(Path::new(&a.path), aud).await?)?
+        }
+        "shelf_get" => json!(n.shelf_get(&a.id).await?.to_string_lossy()),
+        "shelf_delete" => {
+            n.shelf_delete(&a.id).await?;
             Value::Null
         }
         "pull_inbox" => json!(n.pull_inbox().await?),

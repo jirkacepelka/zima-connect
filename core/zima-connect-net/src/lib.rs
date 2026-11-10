@@ -15,6 +15,7 @@ mod hub;
 mod mailbox;
 mod proto;
 mod seal;
+mod shelf;
 mod store;
 
 use std::collections::HashMap;
@@ -24,15 +25,18 @@ use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, bail, Context, Result};
 use base64::Engine;
-use iroh::{endpoint::presets, Endpoint, EndpointAddr, EndpointId, SecretKey};
+use iroh::{endpoint::presets, Endpoint, EndpointAddr, EndpointId, RelayUrl, SecretKey};
 use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::broadcast;
 
+pub use household::RelaySetting;
 pub use household::{AdminOp, Cap, Device, Role, Rule, SignedSnapshot, Snapshot, User};
 use hub::{HubCore, Outcome};
 use mailbox::{Item, Kind, Mailbox, Payload};
+pub use proto::RemoteInput;
 use proto::{read_msg, write_msg, Request, Response};
+pub use shelf::{Audience, ShelfItem};
 pub use store::Peer;
 use store::Store;
 
@@ -94,6 +98,25 @@ pub enum Event {
         from: String,
         from_name: String,
     },
+    /// A link to open on this device.
+    OpenUrl {
+        from: String,
+        from_name: String,
+        url: String,
+    },
+    /// Battery level of another device.
+    Battery {
+        from: String,
+        from_name: String,
+        percent: u8,
+        charging: bool,
+    },
+    /// Remote control from another device (touchpad, keys, media).
+    Remote {
+        from: String,
+        from_name: String,
+        input: RemoteInput,
+    },
     /// The sender stopped its "find my device" ring.
     RingStop {
         from: String,
@@ -152,6 +175,7 @@ pub struct HubDashboard {
     pub devices: Vec<Device>,
     pub rules: Vec<Rule>,
     pub invites: Vec<InviteOut>,
+    pub relay: Option<crate::household::RelaySetting>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -223,7 +247,12 @@ struct Inner {
     membership: Mutex<Option<Membership>>,
     hub: Option<HubCore>,
     mailbox: Option<Mailbox>,
+    shelf: Option<shelf::Shelf>,
     events: broadcast::Sender<Event>,
+    /// Current device name (user can rename it).
+    name: Mutex<String>,
+    /// Own relay currently applied to the endpoint.
+    relay_applied: Mutex<Option<crate::household::RelaySetting>>,
 }
 
 /// A running Zima Connect peer.
@@ -234,15 +263,23 @@ pub struct Node {
 
 impl Node {
     /// Start the node: load/create identity, bind, begin accepting.
-    pub async fn start(cfg: NodeConfig) -> Result<Node> {
+    pub async fn start(mut cfg: NodeConfig) -> Result<Node> {
         tokio::fs::create_dir_all(&cfg.data_dir).await?;
+        // A name the user chose earlier wins over the default one.
+        if let Ok(n) = std::fs::read_to_string(cfg.data_dir.join("device_name")) {
+            if !n.trim().is_empty() {
+                cfg.device_name = n.trim().to_string();
+            }
+        }
         tokio::fs::create_dir_all(&cfg.download_dir).await?;
         let secret = load_or_create_key(&cfg.data_dir.join("identity.key"))?;
 
         let builder = if cfg.internet {
             Endpoint::builder(presets::N0)
         } else {
+            // Relay transport present but empty: a relay can still be added later (own relay).
             Endpoint::builder(presets::Minimal)
+                .relay_mode(iroh::RelayMode::Custom(iroh_relay::RelayMap::empty()))
         };
         let endpoint = ctx(builder
             .secret_key(secret.clone())
@@ -268,8 +305,13 @@ impl Node {
             Some(_) => Some(Mailbox::open(cfg.data_dir.join("mailbox"))?),
             None => None,
         };
+        let shelf = match &cfg.hub {
+            Some(_) => Some(shelf::Shelf::open(cfg.data_dir.join("shelf"))?),
+            None => None,
+        };
         let membership = load_membership(&cfg.data_dir.join("household.json"));
 
+        let name = cfg.device_name.clone();
         let (events, _) = broadcast::channel(64);
         let store = Store::load(cfg.data_dir.join("peers.json"))?;
         let node = Node {
@@ -281,9 +323,13 @@ impl Node {
                 membership: Mutex::new(membership),
                 hub,
                 mailbox,
+                shelf,
                 events,
+                name: Mutex::new(name),
+                relay_applied: Mutex::new(None),
             }),
         };
+        node.refresh_relay();
         node.spawn_accept_loop();
         node.spawn_sync_loop();
         Ok(node)
@@ -302,8 +348,94 @@ impl Node {
     }
 
     /// This device's display name.
-    pub fn device_name(&self) -> &str {
-        &self.inner.cfg.device_name
+    pub fn device_name(&self) -> String {
+        self.inner.name.lock().unwrap().clone()
+    }
+
+    /// Rename this device (kept across restarts, announced to the server).
+    pub async fn rename_device(&self, name: &str) -> Result<()> {
+        let n: String = name.trim().chars().take(40).collect();
+        if n.is_empty() {
+            bail!("name cannot be empty");
+        }
+        std::fs::write(self.inner.cfg.data_dir.join("device_name"), &n)?;
+        *self.inner.name.lock().unwrap() = n.clone();
+        if let Some(hub) = &self.inner.hub {
+            let _ = hub.rename_device(&self.id().to_string(), &n);
+            return Ok(());
+        }
+        let hub = self
+            .inner
+            .membership
+            .lock()
+            .unwrap()
+            .as_ref()
+            .map(|m| m.hub.clone());
+        if let Some(hub) = hub {
+            match self.request(hub, Request::Rename { name: n }, None).await? {
+                Response::Snapshot { snapshot } => self.apply_snapshot(snapshot)?,
+                Response::Err { message } => bail!("{message}"),
+                _ => {}
+            }
+        }
+        Ok(())
+    }
+
+    /// Relay the server announced (members) or configured (server itself).
+    fn desired_relay(&self) -> Option<crate::household::RelaySetting> {
+        if let Some(hub) = &self.inner.hub {
+            return hub.view().relay;
+        }
+        self.inner
+            .membership
+            .lock()
+            .unwrap()
+            .as_ref()
+            .and_then(|m| m.snapshot.relay.clone())
+    }
+
+    /// Apply the server's own relay: add it to the endpoint, and drop the public ones if exclusive.
+    fn refresh_relay(&self) {
+        let node = self.clone();
+        tokio::spawn(async move {
+            let want = node.desired_relay();
+            let prev = node.inner.relay_applied.lock().unwrap().clone();
+            if want == prev {
+                return;
+            }
+            let ep = &node.inner.endpoint;
+            let public: Vec<RelayUrl> = if node.inner.cfg.internet {
+                iroh::defaults::prod::default_relay_map().urls()
+            } else {
+                Vec::new()
+            };
+            if let Some(old) = prev.as_ref().and_then(|p| p.url.parse::<RelayUrl>().ok()) {
+                ep.remove_relay(&old).await;
+            }
+            // Back to the defaults, then apply what is wanted.
+            for u in &public {
+                ep.insert_relay(
+                    u.clone(),
+                    Arc::new(iroh_relay::RelayConfig::from(u.clone())),
+                )
+                .await;
+            }
+            if let Some(w) = &want {
+                match w.url.parse::<RelayUrl>() {
+                    Ok(u) => {
+                        ep.insert_relay(u.clone(), Arc::new(iroh_relay::RelayConfig::new(u, None)))
+                            .await;
+                        if w.exclusive {
+                            for u in &public {
+                                ep.remove_relay(u).await;
+                            }
+                        }
+                    }
+                    Err(e) => tracing::warn!("bad relay url {}: {e}", w.url),
+                }
+            }
+            *node.inner.relay_applied.lock().unwrap() = want;
+        });
     }
 
     /// Subscribe to incoming events.
@@ -322,7 +454,7 @@ impl Node {
                 jc.addr.clone(),
                 Request::Join {
                     code: jc.secret,
-                    name: self.inner.cfg.device_name.clone(),
+                    name: self.device_name(),
                     platform: self.inner.cfg.platform.clone(),
                     user_name: user_name.filter(|n| !n.trim().is_empty()),
                 },
@@ -428,6 +560,7 @@ impl Node {
         m.snapshot = snapshot;
         save_membership(&self.inner.cfg.data_dir.join("household.json"), m)?;
         drop(g);
+        self.refresh_relay();
         let _ = self
             .inner
             .events
@@ -459,6 +592,36 @@ impl Node {
 
     // -- hub (server side) ----------------------------------------------------
 
+    /// Relay(s) this device is currently reachable through.
+    pub fn relay_urls(&self) -> Vec<String> {
+        self.inner
+            .endpoint
+            .addr()
+            .relay_urls()
+            .map(|u| u.to_string())
+            .collect()
+    }
+
+    /// Public IPv4 addresses this device was seen on (hint for the relay setup).
+    pub fn public_ips(&self) -> Vec<String> {
+        self.inner
+            .endpoint
+            .addr()
+            .ip_addrs()
+            .filter_map(|a| match a.ip() {
+                std::net::IpAddr::V4(v)
+                    if !(v.is_private()
+                        || v.is_loopback()
+                        || v.is_link_local()
+                        || v.is_unspecified()) =>
+                {
+                    Some(v.to_string())
+                }
+                _ => None,
+            })
+            .collect()
+    }
+
     /// Server dashboard data (only on a hub node).
     pub fn hub_dashboard(&self) -> Option<HubDashboard> {
         let hub = self.inner.hub.as_ref()?;
@@ -470,6 +633,7 @@ impl Node {
             users: v.users,
             devices: v.devices,
             rules: v.rules,
+            relay: v.relay,
             invites: v
                 .invites
                 .into_iter()
@@ -521,6 +685,7 @@ impl Node {
         } else {
             hub.apply(op)?
         };
+        self.refresh_relay();
         match outcome {
             Outcome::Invite(secret) => Ok(Some(self.wrap_join_code(&secret))),
             Outcome::Created(id) => Ok(Some(id)),
@@ -717,7 +882,7 @@ impl Node {
         }
         let req = Request::Pair {
             secret: t.secret,
-            name: self.inner.cfg.device_name.clone(),
+            name: self.device_name(),
             platform: self.inner.cfg.platform.clone(),
         };
         match self.request(t.addr, req, None).await? {
@@ -759,6 +924,44 @@ impl Node {
     pub async fn ring(&self, peer_id: &str) -> Result<()> {
         self.expect_ok(
             self.request_peer(peer_id, Request::Ring, Some(Cap::Ring), None)
+                .await?,
+        )
+    }
+
+    /// Open a link on the peer's device (live only).
+    pub async fn send_url(&self, peer_id: &str, url: &str) -> Result<()> {
+        let u = url.trim();
+        if !(u.starts_with("http://") || u.starts_with("https://")) {
+            bail!("only web links can be sent");
+        }
+        self.expect_ok(
+            self.request_peer(
+                peer_id,
+                Request::OpenUrl { url: u.to_string() },
+                Some(Cap::Clipboard),
+                None,
+            )
+            .await?,
+        )
+    }
+
+    /// Tell the peer this device's battery level (live only).
+    pub async fn send_battery(&self, peer_id: &str, percent: u8, charging: bool) -> Result<()> {
+        self.expect_ok(
+            self.request_peer(
+                peer_id,
+                Request::Battery { percent, charging },
+                Some(Cap::Status),
+                None,
+            )
+            .await?,
+        )
+    }
+
+    /// Control the peer: touchpad, keys, media (live only).
+    pub async fn send_remote(&self, peer_id: &str, input: RemoteInput) -> Result<()> {
+        self.expect_ok(
+            self.request_peer(peer_id, Request::Remote { input }, Some(Cap::Remote), None)
                 .await?,
         )
     }
@@ -914,6 +1117,107 @@ impl Node {
                 bail!("device and server are both unreachable")
             }
             Err(e) => Err(e),
+        }
+    }
+
+    fn hub_addr(&self) -> Result<EndpointAddr> {
+        let g = self.inner.membership.lock().unwrap();
+        Ok(g.as_ref().ok_or_else(|| anyhow!("not joined"))?.hub.clone())
+    }
+
+    /// Put a file on the server's shelf for `audience` to pick up.
+    pub async fn shelf_put(&self, path: &Path, audience: shelf::Audience) -> Result<ShelfItem> {
+        let meta = tokio::fs::metadata(path).await.context("reading file")?;
+        let size = meta.len();
+        let name = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .ok_or_else(|| anyhow!("bad file name"))?
+            .to_string();
+        let file = tokio::fs::File::open(path).await?;
+        let req = Request::ShelfPut {
+            name,
+            size,
+            audience,
+        };
+        match self
+            .request(self.hub_addr()?, req, Some(Body::Plain(file, size)))
+            .await?
+        {
+            Response::ShelfItem { item } => Ok(item),
+            Response::Err { message } => bail!("{message}"),
+            _ => bail!("unexpected response"),
+        }
+    }
+
+    /// What is on the shelf for this person.
+    pub async fn shelf_list(&self) -> Result<Vec<ShelfItem>> {
+        match self
+            .request(self.hub_addr()?, Request::ShelfList, None)
+            .await?
+        {
+            Response::Shelf { items } => Ok(items),
+            Response::Err { message } => bail!("{message}"),
+            _ => bail!("unexpected response"),
+        }
+    }
+
+    /// Download a shelf item into the download folder. Returns the saved path.
+    pub async fn shelf_get(&self, id: &str) -> Result<PathBuf> {
+        let hub = self.hub_addr()?;
+        let conn = tokio::time::timeout(
+            Duration::from_secs(8),
+            self.inner.endpoint.connect(hub, ALPN),
+        )
+        .await
+        .map_err(|_| anyhow!("server unreachable"))?;
+        let conn = ctx(conn)?;
+        let (mut send, mut recv) = ctx(conn.open_bi().await)?;
+        write_msg(&mut send, &Request::ShelfGet { id: id.to_string() }).await?;
+        ctx(send.finish())?;
+        let item = match read_msg::<_, Response>(&mut recv).await? {
+            Response::ShelfItem { item } => item,
+            Response::Err { message } => bail!("{message}"),
+            _ => bail!("unexpected response"),
+        };
+        let path = unique_path(&self.inner.cfg.download_dir, &item.name).await;
+        let mut f = tokio::fs::File::create(&path).await?;
+        let mut limited = (&mut recv).take(item.size);
+        let n = tokio::io::copy(&mut limited, &mut f).await?;
+        f.flush().await?;
+        conn.close(0u32.into(), b"done");
+        if n != item.size {
+            let _ = tokio::fs::remove_file(&path).await;
+            bail!("download was interrupted");
+        }
+        Ok(path)
+    }
+
+    /// Take a file off the shelf (the person who put it there, or the owner).
+    pub async fn shelf_delete(&self, id: &str) -> Result<()> {
+        match self
+            .request(
+                self.hub_addr()?,
+                Request::ShelfDelete { id: id.to_string() },
+                None,
+            )
+            .await?
+        {
+            Response::Ok => Ok(()),
+            Response::Err { message } => bail!("{message}"),
+            _ => bail!("unexpected response"),
+        }
+    }
+
+    /// Server dashboard: everything on the shelf.
+    pub fn hub_shelf(&self) -> Option<Vec<ShelfItem>> {
+        self.inner.shelf.as_ref().map(|s| s.all())
+    }
+
+    /// Server dashboard: remove a shelf item.
+    pub fn hub_shelf_delete(&self, id: &str) {
+        if let Some(s) = &self.inner.shelf {
+            s.remove(id);
         }
     }
 
@@ -1196,8 +1500,17 @@ impl Node {
                 stream_after = p;
                 r
             }
+            Request::ShelfPut { .. }
+            | Request::ShelfList
+            | Request::ShelfGet { .. }
+            | Request::ShelfDelete { .. } => {
+                let (r, p) = self.handle_shelf_request(&req, &mut recv, &remote).await?;
+                stream_after = p;
+                r
+            }
             Request::Join { .. }
             | Request::Leave
+            | Request::Rename { .. }
             | Request::Sync { .. }
             | Request::Admin { .. } => self.handle_hub_request(&req, &remote),
             Request::Pair {
@@ -1219,7 +1532,7 @@ impl Node {
                     self.inner.store.lock().unwrap().add(peer.clone())?;
                     let _ = self.inner.events.send(Event::Paired { peer });
                     Response::PairOk {
-                        name: self.inner.cfg.device_name.clone(),
+                        name: self.device_name(),
                         platform: self.inner.cfg.platform.clone(),
                     }
                 } else {
@@ -1310,6 +1623,99 @@ impl Node {
         })
     }
 
+    async fn handle_shelf_request<R: tokio::io::AsyncRead + Unpin>(
+        &self,
+        req: &Request,
+        recv: &mut R,
+        remote: &str,
+    ) -> Result<(Response, Option<PathBuf>)> {
+        let (Some(hub), Some(shelf)) = (self.inner.hub.as_ref(), self.inner.shelf.as_ref()) else {
+            return Ok((
+                Response::Err {
+                    message: "this device is not a household server".into(),
+                },
+                None,
+            ));
+        };
+        let err = |m: String| (Response::Err { message: m }, None);
+        let snap = hub.snapshot();
+        let Some(me) = snap.device(remote) else {
+            return Ok(err("device is not part of this household".into()));
+        };
+        let my_user = me.user_id.clone();
+        Ok(match req {
+            Request::ShelfPut {
+                name,
+                size,
+                audience,
+            } => {
+                let Some(user) = snap.user(&my_user) else {
+                    return Ok(err("unknown person".into()));
+                };
+                if let shelf::Audience::Users { ids } = audience {
+                    for id in ids {
+                        if snap.user(id).is_none() {
+                            return Ok(err("unknown person".into()));
+                        }
+                        if id != &my_user && !snap.allowed(&my_user, id, Cap::Files) {
+                            return Ok(err("not allowed by your household policy".into()));
+                        }
+                    }
+                }
+                let item = match shelf.reserve(
+                    name,
+                    *size,
+                    &my_user,
+                    &user.name,
+                    remote,
+                    audience.clone(),
+                ) {
+                    Ok(i) => i,
+                    Err(e) => return Ok(err(format!("{e}"))),
+                };
+                let path = shelf.data_path(&item.id);
+                let mut f = tokio::fs::File::create(&path).await?;
+                let mut limited = recv.take(*size);
+                let n = tokio::io::copy(&mut limited, &mut f).await?;
+                f.flush().await?;
+                if n != *size {
+                    let _ = tokio::fs::remove_file(&path).await;
+                    return Ok(err("incomplete file".into()));
+                }
+                shelf.commit(&item)?;
+                (Response::ShelfItem { item }, None)
+            }
+            Request::ShelfList => {
+                shelf.prune();
+                let items = shelf
+                    .all()
+                    .into_iter()
+                    .filter(|i| i.visible_to(&snap, &my_user))
+                    .map(|mut i| {
+                        i.mine = i.owner_user == my_user;
+                        i
+                    })
+                    .collect();
+                (Response::Shelf { items }, None)
+            }
+            Request::ShelfGet { id } => match shelf.get(id) {
+                Some(item) if item.visible_to(&snap, &my_user) => {
+                    let p = shelf.data_path(&item.id);
+                    (Response::ShelfItem { item }, Some(p))
+                }
+                _ => err("not on the shelf".into()),
+            },
+            Request::ShelfDelete { id } => match shelf.get(id) {
+                Some(item) if item.owner_user == my_user || hub.is_owner(remote) => {
+                    shelf.remove(&item.id);
+                    (Response::Ok, None)
+                }
+                _ => err("not on the shelf".into()),
+            },
+            _ => err("unexpected request".into()),
+        })
+    }
+
     fn handle_hub_request(&self, req: &Request, remote: &str) -> Response {
         let Some(hub) = self.inner.hub.as_ref() else {
             return Response::Err {
@@ -1333,6 +1739,12 @@ impl Node {
                 Ok(()) => Response::Ok,
                 Err(e) => err(e),
             },
+            Request::Rename { name } => {
+                match hub.rename_device(remote, name).and_then(|_| hub.signed()) {
+                    Ok(s) => Response::Snapshot { snapshot: s },
+                    Err(e) => err(e),
+                }
+            }
             Request::Sync { have } => match hub.sync(remote, *have) {
                 Ok(Some(s)) => Response::Snapshot { snapshot: s },
                 Ok(None) => Response::NotModified,
@@ -1349,10 +1761,13 @@ impl Node {
                     Ok(Outcome::Invite(secret)) => Response::InviteCode {
                         code: self.wrap_join_code(&secret),
                     },
-                    Ok(Outcome::Changed) => match hub.signed() {
-                        Ok(s) => Response::Snapshot { snapshot: s },
-                        Err(e) => err(e),
-                    },
+                    Ok(Outcome::Changed) => {
+                        self.refresh_relay();
+                        match hub.signed() {
+                            Ok(s) => Response::Snapshot { snapshot: s },
+                            Err(e) => err(e),
+                        }
+                    }
                     Err(e) => err(e),
                 }
             }
@@ -1373,6 +1788,9 @@ impl Node {
             Request::Ring | Request::RingStop => Some(Cap::Ring),
             Request::Notify { .. } => Some(Cap::Notifications),
             Request::File { .. } => Some(Cap::Files),
+            Request::OpenUrl { .. } => Some(Cap::Clipboard),
+            Request::Battery { .. } => Some(Cap::Status),
+            Request::Remote { .. } => Some(Cap::Remote),
             _ => None, // Ping
         };
         let who = match self.authorize(remote, cap).await {
@@ -1401,6 +1819,37 @@ impl Node {
                 let _ = ev.send(Event::Ring {
                     from: who.id,
                     from_name: who.name,
+                });
+                Response::Ok
+            }
+            Request::OpenUrl { url } => {
+                if url.starts_with("http://") || url.starts_with("https://") {
+                    let _ = ev.send(Event::OpenUrl {
+                        from: who.id,
+                        from_name: who.name,
+                        url: url.clone(),
+                    });
+                    Response::Ok
+                } else {
+                    Response::Err {
+                        message: "only web links can be opened".into(),
+                    }
+                }
+            }
+            Request::Battery { percent, charging } => {
+                let _ = ev.send(Event::Battery {
+                    from: who.id,
+                    from_name: who.name,
+                    percent: (*percent).min(100),
+                    charging: *charging,
+                });
+                Response::Ok
+            }
+            Request::Remote { input } => {
+                let _ = ev.send(Event::Remote {
+                    from: who.id,
+                    from_name: who.name,
+                    input: input.clone(),
                 });
                 Response::Ok
             }

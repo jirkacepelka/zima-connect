@@ -1,8 +1,12 @@
+use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use serde::Serialize;
 use zima_connect_net::Node;
+
+use crate::settings::Settings;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct Activity {
@@ -24,11 +28,23 @@ pub struct AppState {
     next_id: Mutex<u64>,
     /// "Find my device": who is ringing this computer, since when.
     pub ringing: Mutex<Option<(String, Instant)>>,
+    pub data_dir: PathBuf,
+    pub settings: Mutex<Settings>,
+    /// device id -> (percent, charging) as last reported by that device.
+    pub batteries: Mutex<HashMap<String, (u8, bool)>>,
 }
 
 impl AppState {
-    pub fn new(node: Node) -> Self {
-        Self { node, activities: Mutex::new(Vec::new()), next_id: Mutex::new(1), ringing: Mutex::new(None) }
+    pub fn new(node: Node, data_dir: PathBuf, settings: Settings) -> Self {
+        Self {
+            node,
+            activities: Mutex::new(Vec::new()),
+            next_id: Mutex::new(1),
+            ringing: Mutex::new(None),
+            data_dir,
+            settings: Mutex::new(settings),
+            batteries: Mutex::new(HashMap::new()),
+        }
     }
 
     pub fn log(&self, kind: &str, title: impl Into<String>, detail: impl Into<String>, ok: bool, path: Option<String>) {

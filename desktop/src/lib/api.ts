@@ -1,13 +1,15 @@
 import { invoke } from '@tauri-apps/api/core';
 
 export type Delivery = 'delivered' | 'queued';
-export type Cap = 'files' | 'clipboard' | 'notifications' | 'ring' | 'calls';
+export type Cap = 'files' | 'clipboard' | 'notifications' | 'ring' | 'calls' | 'remote' | 'status';
 export const CAPS: { id: Cap; label: string; hint: string }[] = [
   { id: 'files', label: 'Files and photos', hint: 'Send files' },
   { id: 'clipboard', label: 'Clipboard', hint: 'Send clipboard text' },
   { id: 'notifications', label: 'Notifications', hint: 'Show notifications' },
   { id: 'ring', label: 'Find my device', hint: 'Make the device ring' },
-  { id: 'calls', label: 'Calls (coming soon)', hint: 'Voice and video calls' }
+  { id: 'calls', label: 'Voice calls', hint: 'Call the device' },
+  { id: 'remote', label: 'Remote control', hint: 'Touchpad, keyboard and media keys' },
+  { id: 'status', label: 'Battery and status', hint: 'See the battery level' }
 ];
 
 export type Contact = {
@@ -21,7 +23,29 @@ export type Contact = {
   caps: Cap[];
   online: boolean;
   rtt_ms: number | null;
+  battery: [number, boolean] | null;
 };
+
+export type Audience = { to: 'everyone' } | { to: 'users'; ids: string[] };
+export type ShelfItem = {
+  id: string;
+  name: string;
+  size: number;
+  owner_user: string;
+  owner_user_name: string;
+  owner_device: string;
+  audience: Audience;
+  created: number;
+  mine: boolean;
+};
+export type Settings = { background: boolean; autostart: boolean; allow_remote: boolean };
+export type RemoteInput =
+  | { k: 'move'; dx: number; dy: number }
+  | { k: 'click'; button: 'left' | 'right' | 'middle' | 'double' }
+  | { k: 'scroll'; dy: number }
+  | { k: 'text'; text: string }
+  | { k: 'key'; key: string }
+  | { k: 'media'; action: 'play_pause' | 'next' | 'prev' | 'vol_up' | 'vol_down' | 'mute' };
 
 export type Activity = {
   id: number;
@@ -47,7 +71,10 @@ export type AdminOp =
   | { op: 'clear_rule'; from_user: string; to_user: string; cap: Cap }
   | { op: 'remove_device'; id: string }
   | { op: 'remove_user'; id: string }
-  | { op: 'rename_user'; id: string; name: string };
+  | { op: 'rename_user'; id: string; name: string }
+  | { op: 'rename_device'; id: string; name: string }
+  | { op: 'create_user'; name: string }
+  | { op: 'set_role'; id: string; owner: boolean };
 
 export const api = {
   identity: () => invoke<{ id: string; name: string; platform: string }>('get_identity'),
@@ -67,7 +94,18 @@ export const api = {
   ringStop: (peerId: string) => invoke<void>('ring_stop_device', { peerId }),
   ringState: () => invoke<string | null>('get_ring_state'),
   stopRing: () => invoke<void>('stop_ring'),
-  reveal: (path: string) => invoke<void>('reveal_path', { path })
+  reveal: (path: string) => invoke<void>('reveal_path', { path }),
+  renameDevice: (name: string) => invoke<string>('rename_device', { name }),
+  settings: () => invoke<Settings>('get_settings'),
+  setSettings: (next: Settings) => invoke<Settings>('set_settings', { new: next }),
+  shelfList: () => invoke<ShelfItem[]>('shelf_list'),
+  shelfPut: (audience: Audience) => invoke<ShelfItem | null>('shelf_put', { audience }),
+  shelfPutPath: (audience: Audience, path: string) => invoke<ShelfItem>('shelf_put_path', { audience, path }),
+  shelfGet: (id: string) => invoke<string>('shelf_get', { id }),
+  shelfDelete: (id: string) => invoke<void>('shelf_delete', { id }),
+  sendUrl: (peerId: string, url: string) => invoke<void>('send_url', { peerId, url }),
+  sendPath: (peerId: string, path: string) => invoke<Delivery>('send_path', { peerId, path }),
+  remote: (peerId: string, input: RemoteInput) => invoke<void>('send_remote', { peerId, input })
 };
 
 export const errText = (e: unknown) => String(e).replace(/^Error:\s*/, '');

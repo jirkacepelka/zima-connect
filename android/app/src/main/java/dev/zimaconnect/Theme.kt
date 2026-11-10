@@ -16,38 +16,39 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.shape.RoundedCornerShape
 
-val Accent = Color(0xFF0A84FF)
+val Accent = Color(0xFF4A7FD6)
 val Ok = Color(0xFF30A46C)
 val Warn = Color(0xFFE5484D)
 
+// Same system as the server dashboard and the desktop app: achromatic chrome, one data hue.
 private val Light = lightColorScheme(
-    primary = Accent,
+    primary = Color(0xFF141414),
     onPrimary = Color.White,
-    primaryContainer = Color(0x1A0A84FF),
-    onPrimaryContainer = Accent,
-    background = Color(0xFFF5F5F7),
-    onBackground = Color(0xFF1D1D1F),
+    primaryContainer = Color(0xFFE8EEF9),
+    onPrimaryContainer = Color(0xFF0A0A0A),
+    background = Color(0xFFF2F4F7),
+    onBackground = Color(0xFF0A0A0A),
     surface = Color.White,
-    onSurface = Color(0xFF1D1D1F),
-    surfaceVariant = Color(0xFFECECF0),
-    onSurfaceVariant = Color(0xFF6E6E73),
-    outlineVariant = Color(0x14000000),
-    error = Warn,
+    onSurface = Color(0xFF0A0A0A),
+    surfaceVariant = Color(0xFFE5E7EA),
+    onSurfaceVariant = Color(0xFF5F646B),
+    outlineVariant = Color(0xFFE4E7EB),
+    error = Color(0xFFC4242A),
 )
 
 private val Dark = darkColorScheme(
-    primary = Accent,
-    onPrimary = Color.White,
-    primaryContainer = Color(0x2E0A84FF),
-    onPrimaryContainer = Color(0xFF64B5FF),
-    background = Color(0xFF1C1C1E),
-    onBackground = Color(0xFFF5F5F7),
-    surface = Color(0xFF2C2C2E),
-    onSurface = Color(0xFFF5F5F7),
-    surfaceVariant = Color(0xFF3A3A3C),
-    onSurfaceVariant = Color(0xFFA1A1A6),
-    outlineVariant = Color(0x17FFFFFF),
-    error = Color(0xFFFF6369),
+    primary = Color(0xFFF4F4F5),
+    onPrimary = Color(0xFF0A0A0A),
+    primaryContainer = Color(0xFF1A2433),
+    onPrimaryContainer = Color(0xFFF4F4F5),
+    background = Color(0xFF0B0B0C),
+    onBackground = Color(0xFFF4F4F5),
+    surface = Color(0xFF141416),
+    onSurface = Color(0xFFF4F4F5),
+    surfaceVariant = Color(0xFF26262A),
+    onSurfaceVariant = Color(0xFFB0B3B8),
+    outlineVariant = Color(0xFF232327),
+    error = Color(0xFFEF6B6B),
 )
 
 /** Geist (SIL OFL 1.1, Vercel), bundled in res/font. */

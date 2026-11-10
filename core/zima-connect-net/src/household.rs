@@ -20,17 +20,23 @@ pub enum Cap {
     Notifications,
     /// "Find my device" ring.
     Ring,
-    /// Voice / video calls (reserved).
+    /// Voice calls.
     Calls,
+    /// Remote control: touchpad, keyboard, media keys, presentations.
+    Remote,
+    /// Status: battery level and the like.
+    Status,
 }
 
 impl Cap {
-    pub const ALL: [Cap; 5] = [
+    pub const ALL: [Cap; 7] = [
         Cap::Files,
         Cap::Clipboard,
         Cap::Notifications,
         Cap::Ring,
         Cap::Calls,
+        Cap::Remote,
+        Cap::Status,
     ];
 
     /// Between two *different* people only these are allowed unless a rule says otherwise.
@@ -53,6 +59,15 @@ pub struct User {
     pub id: String,
     pub name: String,
     pub role: Role,
+}
+
+/// The server's own relay, announced to every device in the signed snapshot.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RelaySetting {
+    /// e.g. `http://203.0.113.7:3340` (traffic is end-to-end encrypted, TLS adds nothing).
+    pub url: String,
+    /// Use only this relay (not the public ones).
+    pub exclusive: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -82,6 +97,8 @@ pub struct Snapshot {
     pub users: Vec<User>,
     pub devices: Vec<Device>,
     pub rules: Vec<Rule>,
+    #[serde(default)]
+    pub relay: Option<RelaySetting>,
 }
 
 impl Snapshot {
@@ -181,5 +198,13 @@ pub enum AdminOp {
     RenameUser {
         id: String,
         name: String,
+    },
+    RenameDevice {
+        id: String,
+        name: String,
+    },
+    /// Announce (or withdraw) the server's own relay.
+    SetRelay {
+        relay: Option<RelaySetting>,
     },
 }

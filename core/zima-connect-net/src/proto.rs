@@ -4,6 +4,35 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
 use crate::household::{AdminOp, SignedSnapshot};
 use crate::mailbox::{Entry, Item};
+use crate::shelf::{Audience, ShelfItem};
+
+/// Things one device can do on another by remote control.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "k", rename_all = "snake_case")]
+pub enum RemoteInput {
+    Move {
+        dx: i32,
+        dy: i32,
+    },
+    /// "left" | "right" | "middle" | "double"
+    Click {
+        button: String,
+    },
+    Scroll {
+        dy: i32,
+    },
+    Text {
+        text: String,
+    },
+    /// "enter" | "backspace" | "esc" | "tab" | "left" | "right" | "up" | "down" | "space" | …
+    Key {
+        key: String,
+    },
+    /// "play_pause" | "next" | "prev" | "vol_up" | "vol_down" | "mute"
+    Media {
+        action: String,
+    },
+}
 
 const MAX_MSG: u32 = 4 * 1024 * 1024;
 
@@ -23,6 +52,18 @@ pub enum Request {
     },
     Ring,
     RingStop,
+    /// Open a link on the other device.
+    OpenUrl {
+        url: String,
+    },
+    /// Battery level push.
+    Battery {
+        percent: u8,
+        charging: bool,
+    },
+    Remote {
+        input: RemoteInput,
+    },
     Notify {
         app: String,
         title: String,
@@ -48,6 +89,25 @@ pub enum Request {
     },
     /// This device leaves the household (removes itself from the server).
     Leave,
+    /// This device got a new name.
+    Rename {
+        name: String,
+    },
+    // -- shelf (hub) --
+    /// Followed by exactly `size` raw bytes.
+    ShelfPut {
+        name: String,
+        size: u64,
+        audience: Audience,
+    },
+    ShelfList,
+    /// Followed (in the reply) by the raw bytes.
+    ShelfGet {
+        id: String,
+    },
+    ShelfDelete {
+        id: String,
+    },
     // -- offline queue (hub) --
     /// Leave an item for an offline device. Files are followed by raw bytes.
     Deposit {
@@ -75,6 +135,8 @@ pub enum Response {
     InviteCode { code: String },
     Created { id: String },
     Queued,
+    Shelf { items: Vec<ShelfItem> },
+    ShelfItem { item: ShelfItem },
     Inbox { entries: Vec<Entry> },
     Entry { entry: Entry },
     Err { message: String },
