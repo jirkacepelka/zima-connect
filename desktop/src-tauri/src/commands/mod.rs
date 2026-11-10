@@ -8,7 +8,7 @@ use tauri_plugin_clipboard_manager::ClipboardExt;
 use tauri_plugin_dialog::DialogExt;
 
 use tauri_plugin_autostart::ManagerExt;
-use zima_connect_net::{AdminOp, Audience, Contact, Delivery, HouseholdInfo, RemoteInput, ShelfItem, Snapshot};
+use zima_connect_net::{AdminOp, Contact, Delivery, HouseholdInfo, RemoteInput, ShelfItem, Snapshot};
 
 use crate::settings::{self, Settings};
 
@@ -121,15 +121,15 @@ pub async fn shelf_list(state: State<'_, SharedState>) -> Result<Vec<ShelfItem>,
 
 /// Pick a file and leave it on the server's shelf. `None` if the picker was cancelled.
 #[tauri::command]
-pub async fn shelf_put(audience: Audience, app: AppHandle, state: State<'_, SharedState>) -> Result<Option<ShelfItem>, String> {
+pub async fn shelf_put(app: AppHandle, state: State<'_, SharedState>) -> Result<Option<ShelfItem>, String> {
     let picked = tokio::task::spawn_blocking(move || app.dialog().file().blocking_pick_file())
         .await
         .map_err(|e| e.to_string())?;
     let Some(fp) = picked else { return Ok(None) };
     let path: PathBuf = fp.into_path().map_err(|e| e.to_string())?;
-    match state.node.shelf_put(&path, audience).await {
+    match state.node.shelf_put(&path).await {
         Ok(item) => {
-            state.log("shelf", format!("Put {} on the shelf", item.name), "for others to pick up", true, None);
+            state.log("shelf", format!("Put {} on the shelf", item.name), "reachable from all your devices", true, None);
             Ok(Some(item))
         }
         Err(e) => {
@@ -147,6 +147,94 @@ pub async fn shelf_get(id: String, state: State<'_, SharedState>) -> Result<Stri
     let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
     state.log("file", format!("Took {name} from the shelf"), "saved in your Zima Connect folder", true, Some(p.clone()));
     Ok(p)
+}
+
+fn safe_name(name: &str) -> String {
+    let n: String = name.chars().filter(|c| !c.is_control() && !"/\\:*?\"<>|".contains(*c)).take(120).collect();
+    if n.trim().is_empty() { "file".into() } else { n }
+}
+
+/// Make sure a shelf item is in the local preview cache. Returns its path.
+async fn cached(state: &SharedState, id: &str, name: &str, size: u64) -> Result<PathBuf, String> {
+    if !id.chars().all(|c| c.is_ascii_alphanumeric()) {
+        return Err("bad id".into());
+    }
+    let dir = state.data_dir.join("shelf-cache").join(id);
+    let want = dir.join(safe_name(name));
+    if std::fs::metadata(&want).map(|m| m.len() == size).unwrap_or(false) {
+        return Ok(want);
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+    let got = state.node.shelf_get_in(id, &dir).await.map_err(|e| format!("{e:#}"))?;
+    Ok(got)
+}
+
+/// Download a shelf item (once) into the preview cache; the UI shows it from there.
+#[tauri::command]
+pub async fn shelf_cache(id: String, name: String, size: u64, state: State<'_, SharedState>) -> Result<String, String> {
+    Ok(cached(&state, &id, &name, size).await?.to_string_lossy().into_owned())
+}
+
+/// Start a native drag of a shelf file out of the window (to the desktop, a folder, another app).
+#[tauri::command]
+pub async fn drag_out(id: String, name: String, size: u64, window: tauri::WebviewWindow, state: State<'_, SharedState>) -> Result<(), String> {
+    let path = cached(&state, &id, &name, size).await?;
+    let w = window.clone();
+    window
+        .run_on_main_thread(move || {
+            let icon = include_bytes!("../../icons/32x32.png").to_vec();
+            let _ = drag::start_drag(&w, drag::DragItem::Files(vec![path]), drag::Image::Raw(icon), |_, _| {}, drag::Options::default());
+        })
+        .map_err(|e| e.to_string())
+}
+
+/// Let the user pick files (several). Empty when cancelled.
+#[tauri::command]
+pub async fn pick_files(app: AppHandle) -> Result<Vec<String>, String> {
+    let picked = tokio::task::spawn_blocking(move || app.dialog().file().blocking_pick_files())
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(picked
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|f| f.into_path().ok())
+        .map(|p| p.to_string_lossy().into_owned())
+        .collect())
+}
+
+#[derive(Serialize)]
+pub struct PathInfo {
+    pub path: String,
+    pub name: String,
+    pub size: u64,
+    pub is_file: bool,
+}
+
+/// Names and sizes of dropped paths, so the UI can show what is about to be sent.
+#[tauri::command]
+pub fn stat_paths(paths: Vec<String>) -> Vec<PathInfo> {
+    paths
+        .into_iter()
+        .filter_map(|p| {
+            let m = std::fs::metadata(&p).ok()?;
+            let name = std::path::Path::new(&p).file_name()?.to_string_lossy().into_owned();
+            Some(PathInfo { path: p, name, size: if m.is_file() { m.len() } else { 0 }, is_file: m.is_file() })
+        })
+        .collect()
+}
+
+/// Send text (not the clipboard) to a peer.
+#[tauri::command]
+pub async fn send_text(peer_id: String, text: String, state: State<'_, SharedState>) -> Result<Delivery, String> {
+    let name = peer_name(&state, &peer_id);
+    let n = text.chars().count();
+    match state.node.send_clipboard(&peer_id, text).await {
+        Ok(d) => {
+            state.log("clipboard", "Text sent", format!("{n} characters to {name}"), true, None);
+            Ok(d)
+        }
+        Err(e) => Err(format!("{e:#}")),
+    }
 }
 
 #[tauri::command]
@@ -312,14 +400,14 @@ pub async fn send_path(peer_id: String, path: String, state: State<'_, SharedSta
 
 /// Put a dropped file on the shelf.
 #[tauri::command]
-pub async fn shelf_put_path(audience: Audience, path: String, state: State<'_, SharedState>) -> Result<ShelfItem, String> {
+pub async fn shelf_put_path(path: String, state: State<'_, SharedState>) -> Result<ShelfItem, String> {
     let path = PathBuf::from(path);
     if !path.is_file() {
         return Err("Folders cannot be put on the shelf yet. Drop files instead.".into());
     }
-    match state.node.shelf_put(&path, audience).await {
+    match state.node.shelf_put(&path).await {
         Ok(item) => {
-            state.log("shelf", format!("Put {} on the shelf", item.name), "for others to pick up", true, None);
+            state.log("shelf", format!("Put {} on the shelf", item.name), "reachable from all your devices", true, None);
             Ok(item)
         }
         Err(e) => {

@@ -98,6 +98,7 @@ pub enum Request {
     ShelfPut {
         name: String,
         size: u64,
+        #[serde(default)]
         audience: Audience,
     },
     ShelfList,

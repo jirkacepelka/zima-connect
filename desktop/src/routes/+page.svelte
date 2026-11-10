@@ -5,20 +5,20 @@
   import Dialog from '$lib/Dialog.svelte';
   import AddDevice from '$lib/AddDevice.svelte';
   import DeviceView from '$lib/DeviceView.svelte';
-  import ShelfView from '$lib/ShelfView.svelte';
+  import Home from '$lib/Home.svelte';
   import SettingsView from '$lib/SettingsView.svelte';
   import HouseholdView from '$lib/HouseholdView.svelte';
   import UpdateDialog from '$lib/UpdateDialog.svelte';
   import { api, errText, type Activity, type Contact, type Household, type UpdateInfo } from '$lib/api';
 
-  type View = 'device' | 'shelf' | 'activity' | 'people' | 'settings';
+  type View = 'home' | 'device' | 'activity' | 'people' | 'settings';
 
   let identity = $state<{ id: string; name: string; platform: string } | null>(null);
   let contacts = $state<Contact[]>([]);
   let household = $state<Household | null>(null);
   let activities = $state<Activity[]>([]);
   let selectedId = $state<string | null>(null);
-  let view = $state<View>('device');
+  let view = $state<View>('home');
   let loaded = $state(false);
   let now = $state(Date.now());
 
@@ -49,7 +49,15 @@
 
   // Files dropped on the window go to the open device or to the shelf.
   let dragging = $state(false);
-  let shelfDrop: ((paths: string[]) => void) | null = null;
+  let dropHandler: ((paths: string[]) => void) | null = null;
+  /** The device card under the cursor while files are dragged over the window. */
+  let overId = $state<string | null>(null);
+
+  function deviceAt(pos: { x: number; y: number }): string | null {
+    const r = window.devicePixelRatio || 1;
+    const el = document.elementFromPoint(pos.x / r, pos.y / r);
+    return el?.closest<HTMLElement>('[data-device-id]')?.dataset.deviceId ?? null;
+  }
 
   const selected = $derived(contacts.find((c) => c.id === selectedId) ?? contacts[0] ?? null);
   const groups = $derived.by(() => {
@@ -99,11 +107,17 @@
       .then(({ getCurrentWebview }) =>
         getCurrentWebview().onDragDropEvent((e) => {
           const p = e.payload;
-          if (p.type === 'enter' || p.type === 'over') dragging = true;
-          else if (p.type === 'leave') dragging = false;
-          else if (p.type === 'drop') {
+          if (p.type === 'enter' || p.type === 'over') {
+            dragging = true;
+            overId = view === 'home' ? deviceAt(p.position) : null;
+          } else if (p.type === 'leave') {
             dragging = false;
-            dropped(p.paths);
+            overId = null;
+          } else if (p.type === 'drop') {
+            const target = view === 'home' ? deviceAt(p.position) : null;
+            dragging = false;
+            overId = null;
+            dropped(p.paths, target);
           }
         })
       )
@@ -122,20 +136,25 @@
     };
   });
 
-  async function dropped(paths: string[]) {
+  async function dropped(paths: string[], target: string | null) {
     if (!paths.length) return;
-    if (view === 'shelf' && shelfDrop) return shelfDrop(paths);
-    if (view !== 'device' || !selected) return say('Open a device or the shelf, then drop the files.', true);
-    const c = selected;
-    for (const p of paths) {
-      try {
-        const d = await api.sendPath(c.id, p);
-        say(d === 'queued' ? 'Queued: the server delivers it when the device is back' : `Sent to ${c.name}`);
-      } catch (e) {
-        say(errText(e), true);
+    // Dropped on a device card: send right away.
+    if (target) {
+      const c = contacts.find((x) => x.id === target);
+      if (!c) return;
+      for (const p of paths) {
+        try {
+          const d = await api.sendPath(c.id, p);
+          say(d === 'queued' ? `Queued: the server delivers it to ${c.name} when it is back` : `Sent to ${c.name}`);
+        } catch (e) {
+          say(errText(e), true);
+        }
       }
+      refresh();
+      return;
     }
-    refresh();
+    if (dropHandler) return dropHandler(paths);
+    say('Drop files on the shelf, or open a device first.', true);
   }
 
   // -- find my device ---------------------------------------------------------
@@ -271,6 +290,7 @@
     </div>
 
     <nav class="nav">
+      <button class="item" aria-current={view === 'home' ? 'page' : undefined} onclick={() => go('home')}><Icon name="shelf" size={16} /><span class="lbl">Home</span></button>
       {#each groups as g (g.label)}
         <div class="group">{g.label}</div>
         {#each g.items as p (p.id)}
@@ -285,8 +305,6 @@
       <button class="item add" onclick={() => (addOpen = household ? 'show' : 'server')}><Icon name="plus" size={16} /><span class="lbl">Add device</span></button>
 
       <div class="group">Together</div>
-      <button class="item" aria-current={view === 'shelf' ? 'page' : undefined} onclick={() => go('shelf')}><Icon name="shelf" size={16} /><span class="lbl">Shelf</span></button>
-      <button class="item" aria-current={view === 'activity' ? 'page' : undefined} onclick={() => go('activity')}><Icon name="activity" size={16} /><span class="lbl">Activity</span></button>
       {#if household}
         <button class="item" aria-current={view === 'people' ? 'page' : undefined} onclick={() => go('people')}><Icon name="users" size={16} /><span class="lbl">People</span></button>
       {/if}
@@ -311,8 +329,8 @@
         <div class="center"><div class="spinner"></div></div>
       {:else if view === 'settings'}
         <SettingsView name={identity?.name ?? ''} {household} {say} onRenamed={(n) => identity && (identity = { ...identity, name: n })} onAddDevice={() => (addOpen = household ? 'show' : 'server')} onLeave={() => (leaving = true)} onCheckUpdate={() => checkUpdate(true)} />
-      {:else if view === 'shelf'}
-        <ShelfView {household} {dragging} {say} onlistenDrop={(h) => (shelfDrop = h)} />
+      {:else if view === 'home'}
+        <Home {contacts} {household} {activities} {dragging} {overId} {now} {say} onOpenDevice={(id) => go('device', id)} onAdd={() => (addOpen = household ? 'show' : 'server')} onShowActivity={() => go('activity')} onlistenDrop={(h) => (dropHandler = h)} onReveal={(p) => api.reveal(p)} />
       {:else if view === 'activity'}
         <div class="title-row"><div><h1>Activity</h1><div class="finding">What was sent and received on this computer.</div></div></div>
         <section class="card">
@@ -331,7 +349,7 @@
         <HouseholdView {household} myDeviceId={identity?.id ?? ''} {say} onchange={refresh} oninvite={(code, label) => (invite = { code, label })} />
       {:else if selected}
         {#key selected.id}
-          <DeviceView c={selected} myName={identity?.name ?? ''} {dragging} ringing={isRinging(selected.id)} {say} {refresh} onUnpair={unpair} onRing={ring} onStopRing={stopRinging} />
+          <DeviceView c={selected} {dragging} ringing={isRinging(selected.id)} {say} {refresh} onUnpair={unpair} onRing={ring} onStopRing={stopRinging} onlistenDrop={(h) => (dropHandler = h)} />
         {/key}
       {:else}
         <div class="center">
@@ -525,7 +543,7 @@
   .main {
     overflow-y: auto;
     min-width: 0;
-    padding: 32px 32px 48px;
+    padding: 44px 48px 64px;
     outline: 2px solid transparent;
     outline-offset: -8px;
     transition: outline-color 0.12s;
@@ -534,7 +552,7 @@
     outline-color: var(--hue);
   }
   .content {
-    max-width: 760px;
+    max-width: 820px;
     margin: 0 auto;
   }
   .center {

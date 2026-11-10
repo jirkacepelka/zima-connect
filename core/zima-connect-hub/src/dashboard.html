@@ -511,10 +511,10 @@ function audienceLabel(a) {
 function pageShelf() {
   const total = S.shelf.reduce((n, i) => n + i.size, 0);
   return `<div class="title-row"><div><h1>Shelf</h1><div class="finding num">${S.shelf.length ? `${plural(S.shelf.length, 'file', 'files')}, ${fmtBytes(total)}` : 'Nothing on the shelf.'}</div></div></div>
-    <section class="card" aria-labelledby="h-shelf"><div class="card-head"><h2 id="h-shelf">Files left for others</h2><span class="meta">kept for 14 days, then removed</span></div>
+    <section class="card" aria-labelledby="h-shelf"><div class="card-head"><h2 id="h-shelf">Personal shelves</h2><span class="meta">kept for 14 days, then removed</span></div>
     ${S.shelf.length ? S.shelf.map(i => `<div class="row">${icon('file')}
-      <div class="grow"><div class="name">${esc(i.name)}</div><div class="sub">From ${esc(i.owner_user_name)} for ${esc(audienceLabel(i.audience))} · <span class="num">${fmtBytes(i.size)}</span></div></div>
-      <button class="link-danger" data-rmshelf="${i.id}" data-name="${esc(i.name)}">Remove</button></div>`).join('') : '<div class="empty-line">People put files here from the app so others can take them. Unlike the offline queue, the server can read these, like any shared folder.</div>'}
+      <div class="grow"><div class="name">${esc(i.name)}</div><div class="sub">${esc(i.owner_user_name)}’s shelf · <span class="num">${fmtBytes(i.size)}</span></div></div>
+      <button class="link-danger" data-rmshelf="${i.id}" data-name="${esc(i.name)}">Remove</button></div>`).join('') : '<div class="empty-line">Each person has a personal shelf to reach files from all their own devices. Only that person sees their files. Unlike the offline queue, the server can read these, like any folder on it.</div>'}
     </section>`;
 }
 function pageServer() {

@@ -313,8 +313,6 @@ fun ShelfScreen(say: (String) -> Unit) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     val household = AppModel.household
-    var everyone by remember { mutableStateOf(true) }
-    val picked = remember { mutableStateListOf<String>() }
     var busy by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
@@ -324,17 +322,13 @@ fun ShelfScreen(say: (String) -> Unit) {
         }
     }
 
-    val others = household?.users?.filter { it.id != household.me.id } ?: emptyList()
-
     val pick = rememberLauncherForFile { uri ->
         scope.launch {
             busy = true
             try {
                 val (file, label) = copyToCache(ctx, uri)
                 try {
-                    val aud = if (everyone) JSONObject().put("to", "everyone")
-                    else JSONObject().put("to", "users").put("ids", JSONArray(picked.toList()))
-                    AppModel.shelfPut(file, label, aud)
+                    AppModel.shelfPut(file, label)
                     say("Put on the shelf")
                 } finally {
                     file.delete()
@@ -357,38 +351,16 @@ fun ShelfScreen(say: (String) -> Unit) {
     LazyColumn(contentPadding = PaddingValues(16.dp)) {
         item {
             Text(
-                "Leave files on the server for others to pick up, even when you are not online together.",
+                "Your personal shelf on the server: put a file here on one device and pick it up on another.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Spacer(Modifier.height(12.dp))
             Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), modifier = Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(16.dp)) {
-                    Text("Who can take it", style = MaterialTheme.typography.titleMedium)
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        RadioButton(selected = everyone, onClick = { everyone = true })
-                        Text("Everyone")
-                        Spacer(Modifier.width(16.dp))
-                        RadioButton(selected = !everyone, onClick = { everyone = false })
-                        Text("Only…")
-                    }
-                    if (!everyone) {
-                        if (others.isEmpty()) {
-                            Text("No other people in the household yet.", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        } else {
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                others.forEach { u ->
-                                    FilterChip(
-                                        selected = u.id in picked,
-                                        onClick = { if (u.id in picked) picked.remove(u.id) else picked.add(u.id) },
-                                        label = { Text(u.name) },
-                                    )
-                                }
-                            }
-                        }
-                    }
+                    Text("Only you can see these files. Reach them from any of your devices.", style = MaterialTheme.typography.bodyMedium)
                     Spacer(Modifier.height(8.dp))
-                    Button(onClick = { pick() }, enabled = !busy && (everyone || picked.isNotEmpty())) {
+                    Button(onClick = { pick() }, enabled = !busy) {
                         Text(if (busy) "Uploading…" else "Put a file on the shelf")
                     }
                 }
@@ -409,7 +381,7 @@ fun ShelfScreen(say: (String) -> Unit) {
                         Column(Modifier.weight(1f)) {
                             Text(i.name, style = MaterialTheme.typography.titleSmall)
                             Text(
-                                "${if (i.mine) "You" else i.ownerName} for ${if (i.everyone) "everyone" else i.toUsers.joinToString(", ").ifEmpty { "only you" }} · ${sizeText(i.size)}",
+                                sizeText(i.size),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
@@ -439,7 +411,7 @@ fun ShelfScreen(say: (String) -> Unit) {
         item {
             Spacer(Modifier.height(12.dp))
             Text(
-                "Files on the shelf are stored on your server so it can show them to the right people. Direct sends and the offline queue stay end-to-end encrypted.",
+                "Files on the shelf are stored on your server. Direct sends and the offline queue stay end-to-end encrypted.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

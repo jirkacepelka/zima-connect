@@ -1,5 +1,5 @@
 use std::time::Duration;
-use zima_connect_net::{AdminOp, Audience, Cap, Event, Node, NodeConfig, RemoteInput};
+use zima_connect_net::{AdminOp, Event, Node, NodeConfig, RemoteInput};
 
 fn cfg(dir: &std::path::Path, name: &str, hub: bool) -> NodeConfig {
     NodeConfig {
@@ -56,28 +56,12 @@ async fn shelf_and_remote() {
     for n in [&me, &phone, &mom, &dad] {
         n.sync().await.unwrap();
     }
-    let snap = me.household_snapshot().unwrap();
-    let mom_id = snap
-        .users
-        .iter()
-        .find(|u| u.name == "Mom")
-        .unwrap()
-        .id
-        .clone();
 
-    // A file for Mom only.
+    // The shelf is personal: Jiri's phone sees it, Mom and Dad do not.
     let f = tmp.join("holiday.jpg");
     std::fs::create_dir_all(&tmp).unwrap();
     std::fs::write(&f, vec![7u8; 300_000]).unwrap();
-    let item = me
-        .shelf_put(
-            &f,
-            Audience::Users {
-                ids: vec![mom_id.clone()],
-            },
-        )
-        .await
-        .unwrap();
+    let item = me.shelf_put(&f).await.unwrap();
     assert_eq!(item.name, "holiday.jpg");
     assert!(me
         .shelf_list()
@@ -91,44 +75,16 @@ async fn shelf_and_remote() {
         .unwrap()
         .iter()
         .any(|i| i.id == item.id)); // same person
-    assert!(mom
-        .shelf_list()
-        .await
-        .unwrap()
-        .iter()
-        .any(|i| i.id == item.id));
-    assert!(dad.shelf_list().await.unwrap().is_empty()); // not for Dad
-    assert!(dad.shelf_get(&item.id).await.is_err());
-    let saved = mom.shelf_get(&item.id).await.unwrap();
+    assert!(mom.shelf_list().await.unwrap().is_empty());
+    assert!(dad.shelf_list().await.unwrap().is_empty());
+    assert!(mom.shelf_get(&item.id).await.is_err());
+    let saved = phone.shelf_get(&item.id).await.unwrap();
     assert_eq!(std::fs::read(saved).unwrap().len(), 300_000);
 
-    // Everyone, but a rule forbids sending files to Dad.
-    let everyone = me.shelf_put(&f, Audience::Everyone).await.unwrap();
-    assert!(dad
-        .shelf_list()
-        .await
-        .unwrap()
-        .iter()
-        .any(|i| i.id == everyone.id));
-    hub.hub_admin(AdminOp::SetRule {
-        from_user: jiri.clone(),
-        to_user: snap
-            .users
-            .iter()
-            .find(|u| u.name == "Dad")
-            .unwrap()
-            .id
-            .clone(),
-        cap: Cap::Files,
-        allow: false,
-    })
-    .await
-    .unwrap();
-    assert!(dad.shelf_list().await.unwrap().is_empty());
-    // Mom cannot delete Jiri's file; Jiri can.
-    assert!(mom.shelf_delete(&everyone.id).await.is_err());
-    me.shelf_delete(&everyone.id).await.unwrap();
-    assert_eq!(hub.hub_shelf().unwrap().len(), 1);
+    // Only the owner removes it.
+    assert!(mom.shelf_delete(&item.id).await.is_err());
+    phone.shelf_delete(&item.id).await.unwrap();
+    assert!(hub.hub_shelf().unwrap().is_empty());
 
     // Remote control and status: same person yes, other person no (default policy).
     let mut ev = phone.subscribe();

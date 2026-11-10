@@ -49,6 +49,7 @@
 
 <Dialog title="Zima Connect {info.latest}" {onclose}>
   <p class="lead">You have {info.current}. Your devices, people and settings stay as they are.</p>
+  <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
   <div class="notes" role="region" tabindex="0" aria-label="What is new">
     {#each lines as l}
       {#if l.kind === 'h'}<h4>{l.text}</h4>{:else if l.kind === 'li'}<div class="li">{l.text}</div>{:else}<p>{l.text}</p>{/if}

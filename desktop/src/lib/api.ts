@@ -26,7 +26,6 @@ export type Contact = {
   battery: [number, boolean] | null;
 };
 
-export type Audience = { to: 'everyone' } | { to: 'users'; ids: string[] };
 export type ShelfItem = {
   id: string;
   name: string;
@@ -34,7 +33,7 @@ export type ShelfItem = {
   owner_user: string;
   owner_user_name: string;
   owner_device: string;
-  audience: Audience;
+  audience?: unknown;
   created: number;
   mine: boolean;
 };
@@ -114,8 +113,13 @@ export const api = {
   settings: () => invoke<Settings>('get_settings'),
   setSettings: (next: Settings) => invoke<Settings>('set_settings', { new: next }),
   shelfList: () => invoke<ShelfItem[]>('shelf_list'),
-  shelfPut: (audience: Audience) => invoke<ShelfItem | null>('shelf_put', { audience }),
-  shelfPutPath: (audience: Audience, path: string) => invoke<ShelfItem>('shelf_put_path', { audience, path }),
+  shelfPut: () => invoke<ShelfItem | null>('shelf_put'),
+  shelfPutPath: (path: string) => invoke<ShelfItem>('shelf_put_path', { path }),
+  shelfCache: (id: string, name: string, size: number) => invoke<string>('shelf_cache', { id, name, size }),
+  dragOut: (id: string, name: string, size: number) => invoke<void>('drag_out', { id, name, size }),
+  statPaths: (paths: string[]) => invoke<{ path: string; name: string; size: number; is_file: boolean }[]>('stat_paths', { paths }),
+  pickFiles: () => invoke<string[]>('pick_files'),
+  sendText: (peerId: string, text: string) => invoke<Delivery>('send_text', { peerId, text }),
   shelfGet: (id: string) => invoke<string>('shelf_get', { id }),
   shelfDelete: (id: string) => invoke<void>('shelf_delete', { id }),
   sendUrl: (peerId: string, url: string) => invoke<void>('send_url', { peerId, url }),

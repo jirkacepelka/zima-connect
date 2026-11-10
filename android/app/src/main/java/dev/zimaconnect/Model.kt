@@ -224,9 +224,9 @@ object AppModel {
         shelf = parseShelf(Api.call("shelf_list"), household?.users ?: emptyList())
     }
 
-    suspend fun shelfPut(file: File, label: String, audience: JSONObject) {
-        Api.call("shelf_put", Api.args("path" to file.absolutePath, "audience" to audience))
-        log("shelf", "Put $label on the shelf", "for others to pick up")
+    suspend fun shelfPut(file: File, label: String) {
+        Api.call("shelf_put", Api.args("path" to file.absolutePath))
+        log("shelf", "Put $label on your shelf", "reachable from all your devices")
         refreshShelf()
     }
 

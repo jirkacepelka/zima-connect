@@ -1125,8 +1125,8 @@ impl Node {
         Ok(g.as_ref().ok_or_else(|| anyhow!("not joined"))?.hub.clone())
     }
 
-    /// Put a file on the server's shelf for `audience` to pick up.
-    pub async fn shelf_put(&self, path: &Path, audience: shelf::Audience) -> Result<ShelfItem> {
+    /// Put a file on your personal shelf on the server (reachable from all your devices).
+    pub async fn shelf_put(&self, path: &Path) -> Result<ShelfItem> {
         let meta = tokio::fs::metadata(path).await.context("reading file")?;
         let size = meta.len();
         let name = path
@@ -1138,7 +1138,7 @@ impl Node {
         let req = Request::ShelfPut {
             name,
             size,
-            audience,
+            audience: shelf::Audience::default(),
         };
         match self
             .request(self.hub_addr()?, req, Some(Body::Plain(file, size)))
@@ -1164,6 +1164,12 @@ impl Node {
 
     /// Download a shelf item into the download folder. Returns the saved path.
     pub async fn shelf_get(&self, id: &str) -> Result<PathBuf> {
+        self.shelf_get_in(id, &self.inner.cfg.download_dir).await
+    }
+
+    /// Download a shelf item into `dir` (e.g. a preview cache). Returns the saved path.
+    pub async fn shelf_get_in(&self, id: &str, dir: &Path) -> Result<PathBuf> {
+        tokio::fs::create_dir_all(dir).await?;
         let hub = self.hub_addr()?;
         let conn = tokio::time::timeout(
             Duration::from_secs(8),
@@ -1180,7 +1186,7 @@ impl Node {
             Response::Err { message } => bail!("{message}"),
             _ => bail!("unexpected response"),
         };
-        let path = unique_path(&self.inner.cfg.download_dir, &item.name).await;
+        let path = unique_path(dir, &item.name).await;
         let mut f = tokio::fs::File::create(&path).await?;
         let mut limited = (&mut recv).take(item.size);
         let n = tokio::io::copy(&mut limited, &mut f).await?;
@@ -1644,31 +1650,17 @@ impl Node {
         };
         let my_user = me.user_id.clone();
         Ok(match req {
-            Request::ShelfPut {
-                name,
-                size,
-                audience,
-            } => {
+            Request::ShelfPut { name, size, .. } => {
                 let Some(user) = snap.user(&my_user) else {
                     return Ok(err("unknown person".into()));
                 };
-                if let shelf::Audience::Users { ids } = audience {
-                    for id in ids {
-                        if snap.user(id).is_none() {
-                            return Ok(err("unknown person".into()));
-                        }
-                        if id != &my_user && !snap.allowed(&my_user, id, Cap::Files) {
-                            return Ok(err("not allowed by your household policy".into()));
-                        }
-                    }
-                }
                 let item = match shelf.reserve(
                     name,
                     *size,
                     &my_user,
                     &user.name,
                     remote,
-                    audience.clone(),
+                    shelf::Audience::default(),
                 ) {
                     Ok(i) => i,
                     Err(e) => return Ok(err(format!("{e}"))),
@@ -1690,7 +1682,7 @@ impl Node {
                 let items = shelf
                     .all()
                     .into_iter()
-                    .filter(|i| i.visible_to(&snap, &my_user))
+                    .filter(|i| i.visible_to(&my_user))
                     .map(|mut i| {
                         i.mine = i.owner_user == my_user;
                         i
@@ -1699,7 +1691,7 @@ impl Node {
                 (Response::Shelf { items }, None)
             }
             Request::ShelfGet { id } => match shelf.get(id) {
-                Some(item) if item.visible_to(&snap, &my_user) => {
+                Some(item) if item.visible_to(&my_user) => {
                     let p = shelf.data_path(&item.id);
                     (Response::ShelfItem { item }, Some(p))
                 }

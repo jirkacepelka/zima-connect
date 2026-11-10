@@ -18,7 +18,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use tokio::runtime::Runtime;
 use tokio::sync::broadcast;
-use zima_connect_net::{AdminOp, Audience, Event, Node, NodeConfig, RemoteInput};
+use zima_connect_net::{AdminOp, Event, Node, NodeConfig, RemoteInput};
 
 static RT: OnceLock<Runtime> = OnceLock::new();
 static NODE: OnceLock<Node> = OnceLock::new();
@@ -65,8 +65,6 @@ struct Args {
     body: String,
     #[serde(default)]
     op: Option<AdminOp>,
-    #[serde(default)]
-    audience: Option<Audience>,
     #[serde(default)]
     input: Option<RemoteInput>,
     #[serde(default)]
@@ -171,10 +169,7 @@ async fn dispatch(method: &str, args_json: &str) -> anyhow::Result<Value> {
             Value::Null
         }
         "shelf_list" => serde_json::to_value(n.shelf_list().await?)?,
-        "shelf_put" => {
-            let aud = a.audience.unwrap_or(Audience::Everyone);
-            serde_json::to_value(n.shelf_put(Path::new(&a.path), aud).await?)?
-        }
+        "shelf_put" => serde_json::to_value(n.shelf_put(Path::new(&a.path)).await?)?,
         "shelf_get" => json!(n.shelf_get(&a.id).await?.to_string_lossy()),
         "shelf_delete" => {
             n.shelf_delete(&a.id).await?;

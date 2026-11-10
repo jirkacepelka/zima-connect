@@ -1,7 +1,8 @@
-//! The shelf: files left on the household server for other people (or everybody) to pick up.
+//! The shelf: a personal place on the household server for files you want to reach from any of
+//! your own devices. Only the person who put a file there can see it.
 //!
-//! Unlike the offline queue these are not sealed for one device: the shelf is a shared folder on
-//! the owner's own server, so the server can see them. Visibility follows the household policy.
+//! Unlike the offline queue these are not sealed for one device: the shelf is a folder on your own
+//! server, so the server can see them.
 
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -9,13 +10,11 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use anyhow::{bail, Result};
 use serde::{Deserialize, Serialize};
 
-use crate::household::{Cap, Snapshot};
-
 pub const MAX_FILE: u64 = 4 * 1024 * 1024 * 1024; // 4 GiB per file
 pub const MAX_TOTAL: u64 = 20 * 1024 * 1024 * 1024; // 20 GiB on the shelf
 const TTL_SECS: u64 = 14 * 24 * 60 * 60;
 
-/// Who may take a file from the shelf.
+/// Kept for older apps that still send it. The shelf is personal: this is ignored.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "to", rename_all = "snake_case")]
 pub enum Audience {
@@ -40,17 +39,16 @@ pub struct ShelfItem {
     pub mine: bool,
 }
 
+impl Default for Audience {
+    fn default() -> Self {
+        Audience::Users { ids: Vec::new() }
+    }
+}
+
 impl ShelfItem {
-    /// May `viewer_user` see and take this item?
-    pub fn visible_to(&self, snap: &Snapshot, viewer_user: &str) -> bool {
-        if self.owner_user == viewer_user {
-            return true;
-        }
-        let listed = match &self.audience {
-            Audience::Everyone => true,
-            Audience::Users { ids } => ids.iter().any(|i| i == viewer_user),
-        };
-        listed && snap.allowed(&self.owner_user, viewer_user, Cap::Files)
+    /// Only the person who put the file on the shelf may see it.
+    pub fn visible_to(&self, viewer_user: &str) -> bool {
+        self.owner_user == viewer_user
     }
 }
 
