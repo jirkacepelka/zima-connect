@@ -5,256 +5,605 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light dark">
 <title>Zima Connect</title>
+<link rel="preload" href="/fonts/Geist-Variable.woff2" as="font" type="font/woff2" crossorigin>
 <style>
-  :root{color-scheme:light dark;--bg:#f5f5f7;--surface:#fff;--surface-2:#fafafc;--text:#1d1d1f;--text-2:#6e6e73;--text-3:#a1a1a6;--line:rgba(0,0,0,.08);--hover:rgba(0,0,0,.045);--accent:#0a84ff;--accent-soft:rgba(10,132,255,.1);--ok:#30a46c;--warn:#e5484d;--shadow:0 1px 2px rgba(0,0,0,.04),0 4px 16px rgba(0,0,0,.05);--shadow-lg:0 10px 40px rgba(0,0,0,.2);--overlay:rgba(0,0,0,.35)}
-  @media(prefers-color-scheme:dark){:root{--bg:#1c1c1e;--surface:#2c2c2e;--surface-2:#323235;--text:#f5f5f7;--text-2:#a1a1a6;--text-3:#6e6e73;--line:rgba(255,255,255,.09);--hover:rgba(255,255,255,.06);--accent-soft:rgba(10,132,255,.18);--ok:#3dd68c;--warn:#ff6369;--shadow:0 1px 2px rgba(0,0,0,.3),0 4px 16px rgba(0,0,0,.25);--shadow-lg:0 10px 40px rgba(0,0,0,.55);--overlay:rgba(0,0,0,.55)}}
-  *{box-sizing:border-box}
-  body{margin:0;background:var(--bg);color:var(--text);font:14px/1.45 'Segoe UI Variable Text','Segoe UI',system-ui,-apple-system,'Helvetica Neue',Arial,sans-serif;-webkit-font-smoothing:antialiased}
-  main{max-width:880px;margin:0 auto;padding:32px 20px 70px}
-  header.top{display:flex;align-items:center;gap:12px;margin-bottom:26px}
-  .logo{width:38px;height:38px;border-radius:11px;background:var(--accent);color:#fff;display:grid;place-items:center;flex-shrink:0}
-  h1{font-size:22px;margin:0;font-weight:650;letter-spacing:-.01em}
-  h2{font-size:15px;font-weight:650;margin:32px 0 10px;display:flex;align-items:center;gap:10px}
-  .sub{color:var(--text-2);font-size:13px}
-  .grow{flex:1;min-width:0}
-  .card{background:var(--surface);border-radius:14px;box-shadow:var(--shadow),0 0 0 1px var(--line)}
-  .pad{padding:18px 20px}
-  .muted{color:var(--text-2);font-size:12.5px}
-  .name{font-weight:600}
-  button{font:inherit;border:0;cursor:pointer;color:inherit;background:none}
-  button:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
-  .btn{background:var(--accent);color:#fff;font-weight:600;border-radius:9px;padding:8px 16px}
-  .btn:disabled{opacity:.45;cursor:not-allowed}
-  .btn.ghost{background:none;color:var(--text-2);font-weight:550}
-  .btn.ghost:hover{background:var(--hover)}
-  .link{color:var(--accent);font-weight:550;font-size:12.5px;padding:4px 8px;border-radius:7px}
-  .link:hover{background:var(--accent-soft)}
-  .link.danger{color:var(--text-3)}
-  .link.danger:hover{color:var(--warn);background:var(--hover)}
-  input[type=text],input[type=password]{font:inherit;padding:9px 12px;border-radius:10px;border:0;background:var(--surface);color:var(--text);box-shadow:0 0 0 1px var(--line);width:100%}
-  .row{display:flex;align-items:center;gap:12px}
-  .person{padding:14px 18px}
-  .person+.person{border-top:1px solid var(--line)}
-  .avatar{width:34px;height:34px;border-radius:50%;background:var(--accent-soft);color:var(--accent);display:grid;place-items:center;font-weight:650;flex-shrink:0}
-  .pill{font-size:11.5px;padding:2px 9px;border-radius:99px;background:var(--accent-soft);color:var(--accent);font-weight:600}
-  .devs{margin:8px 0 0 46px;display:flex;flex-direction:column;gap:2px}
-  .dev{display:flex;align-items:center;gap:9px;color:var(--text-2);font-size:13px;padding:3px 0}
-  .dot{width:8px;height:8px;border-radius:50%;background:var(--text-3);flex-shrink:0}
-  .dot.on{background:var(--ok)}
-  .add{display:flex;gap:10px;margin-top:12px}
-  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(270px,1fr));gap:14px}
-  .pol{padding:16px 18px 8px}
-  .pol-title{font-size:15px;font-weight:600}
-  .arrow{color:var(--text-3);margin:0 4px}
-  .sw{display:flex;align-items:center;justify-content:space-between;padding:9px 0;border-top:1px solid var(--line);position:relative;cursor:pointer}
-  .sw.off{opacity:.55;cursor:default}
-  .sw input{position:absolute;inset:0;width:100%;height:100%;opacity:0;margin:0;cursor:inherit}
-  .track{width:40px;height:24px;border-radius:99px;background:var(--text-3);position:relative;transition:background .15s;flex-shrink:0}
-  .knob{position:absolute;top:2px;left:2px;width:20px;height:20px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.3);transition:transform .15s}
-  .sw input:checked~.track{background:var(--ok)}
-  .sw input:checked~.track .knob{transform:translateX(16px)}
-  .inv{display:flex;align-items:center;gap:12px;padding:12px 18px}
-  .inv+.inv{border-top:1px solid var(--line)}
-  .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:14px}
-  .stat{padding:14px 18px}
-  .stat b{display:block;font-size:20px;font-weight:650}
-  .id{font:11.5px ui-monospace,'Cascadia Code',Menlo,Consolas,monospace;color:var(--text-3);word-break:break-all;user-select:all}
-  code.block{display:block;font:11.5px ui-monospace,'Cascadia Code',Menlo,Consolas,monospace;word-break:break-all;background:var(--bg);border-radius:10px;padding:12px 14px;box-shadow:inset 0 0 0 1px var(--line);user-select:all;margin:10px 0;max-height:130px;overflow:auto}
-  .center{min-height:100vh;display:grid;place-items:center;padding:20px}
-  .login{width:380px;max-width:100%;padding:28px}
-  .login h1{margin:14px 0 4px}
-  .login .field{margin-top:14px}
-  .err{color:var(--warn);font-size:13px;margin-top:10px;min-height:18px}
-  .overlay{position:fixed;inset:0;background:var(--overlay);display:grid;place-items:center;padding:20px;z-index:10}
-  .modal{width:460px;max-width:100%;background:var(--surface);border-radius:18px;box-shadow:var(--shadow-lg),0 0 0 1px var(--line);padding:22px 24px 24px;max-height:92vh;overflow:auto}
-  .modal h3{margin:0 0 6px;font-size:18px}
-  .qr{width:240px;height:240px;margin:12px auto;border-radius:12px;overflow:hidden;background:#fff}
-  .qr svg{width:100%;height:100%;display:block}
-  .toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%);background:var(--text);color:var(--bg);padding:10px 18px;border-radius:12px;font-weight:550;box-shadow:var(--shadow-lg);z-index:20}
-  .toast.error{background:var(--warn);color:#fff}
-  .notice{background:var(--accent-soft);color:var(--text);border-radius:14px;padding:16px 18px;margin-bottom:6px}
-  [hidden]{display:none!important}
+/* Geist (SIL OFL 1.1, Vercel), served by this server so it works without internet. */
+@font-face { font-family: "Geist"; src: url("/fonts/Geist-Variable.woff2") format("woff2"); font-weight: 100 900; font-display: swap; }
+@font-face { font-family: "Geist Mono"; src: url("/fonts/GeistMono-Variable.woff2") format("woff2"); font-weight: 100 900; font-display: swap; }
+/*
+  Style: achromatic ledger (seed 96737643). No colour in the chrome; the one data hue
+  (--hue) marks who can reach whom; status green only on "online".
+  Grid: sidebar 248px, canvas fluid with 32px side padding, content max 1120px.
+  Overview row 2: 2fr + 1fr with a 12px gap, both cards end on the canvas edges.
+*/
+:root {
+  color-scheme: light;
+  --ground: #f2f4f7;  --sidebar: #f2f4f7;  --surface: #ffffff;  --raised: #f6f7f9;  --active: #e3e6ea;
+  --border: #e4e7eb;  --rule: #eef0f3;  --control: #d0d5db;
+  --text: #0a0a0a;  --muted: #5f646b;  --faint: #6b7077;
+  --primary: #141414;  --primary-ink: #ffffff;  --secondary: #e5e7ea;
+  --hue: #1d5fbf;  --hue-pale: #e8eef9;
+  --positive: #2e7d32;  --on: #34a853;  --negative: #c4242a;
+  --pill-neutral-bg: #eceef1;  --pill-neutral-ink: #3d4148;
+  --radius-card: 8px;  --radius-control: 6px;
+  --gap: 12px;  --pad: 32px;  --card-pad: 20px;  --row: 48px;  --control-height: 34px;
+  --font: "Geist", Inter, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "Geist Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --overlay: rgba(10, 12, 16, .32);
+  --float: 0 12px 40px rgba(0, 0, 0, .16), 0 0 0 1px rgba(0, 0, 0, .06);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --ground: #0b0b0c;  --sidebar: #0b0b0c;  --surface: #141416;  --raised: #1b1b1e;  --active: #26262a;
+    --border: #232327;  --rule: #1d1d21;  --control: #3d3d43;
+    --text: #f4f4f5;  --muted: #b0b3b8;  --faint: #94979c;
+    --primary: #f4f4f5;  --primary-ink: #0a0a0a;  --secondary: #26262a;
+    --hue: #6fa0f0;  --hue-pale: #1a2433;
+    --positive: #4cc26a;  --on: #4cc26a;  --negative: #ef6b6b;
+    --pill-neutral-bg: #26262a;  --pill-neutral-ink: #c9cbcf;
+    --overlay: rgba(0, 0, 0, .55);
+    --float: 0 12px 40px rgba(0, 0, 0, .6), 0 0 0 1px rgba(255, 255, 255, .06);
+  }
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { background: var(--ground); color: var(--text); font: 14px/20px var(--font); -webkit-font-smoothing: antialiased; }
+button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
+input { font: inherit; color: var(--text); }
+:focus-visible { outline: 2px solid var(--hue); outline-offset: 2px; border-radius: 4px; }
+svg { flex: none; display: block; }
+.num { font-variant-numeric: tabular-nums; }
+[hidden] { display: none !important; }
+
+/* ── shell: open plane ─────────────────────────── */
+.shell { display: grid; grid-template-columns: 248px 1fr; min-height: 100vh; }
+.side { position: sticky; top: 0; height: 100vh; display: flex; flex-direction: column; padding: 20px 12px 16px; border-right: 1px solid var(--border); background: var(--sidebar); }
+.mark { display: flex; align-items: center; gap: 10px; padding: 0 8px 20px; }
+.mark-glyph { width: 28px; height: 28px; border-radius: 7px; border: 1.5px solid var(--text); display: grid; place-items: center; color: var(--text); }
+.mark b { display: block; font-weight: 600; font-size: 14px; }
+.mark span { display: block; font-size: 12px; color: var(--muted); }
+.nav { flex: 1; overflow-y: auto; }
+.nav-group { font-size: 12px; color: var(--muted); padding: 22px 8px 6px; }
+.nav-item { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 32px; margin-bottom: 2px; padding: 6px 8px; border-radius: 6px; color: var(--muted); text-align: left; }
+.nav-item:hover { background: var(--raised); color: var(--text); }
+.nav-item[aria-current="page"] { background: var(--active); color: var(--text); }
+.nav-item .lbl { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.nav-item .count { font-size: 12px; color: var(--faint); }
+.side-foot { border-top: 1px solid var(--border); padding-top: 10px; }
+.topbar { display: none; }
+
+.canvas { min-width: 0; padding: 32px var(--pad) 64px; }
+.content { max-width: 1120px; margin: 0 auto; }
+
+/* ── title row ─────────────────────────────────── */
+.title-row { display: flex; align-items: flex-start; gap: 16px; margin-bottom: 24px; }
+.title-row h1 { margin: 0; font-size: 24px; line-height: 32px; font-weight: 600; letter-spacing: -.01em; }
+.title-row .finding { color: var(--muted); margin-top: 4px; font-size: 14px; }
+.title-row .actions { margin-left: auto; display: flex; gap: 8px; flex: none; }
+
+/* ── controls ─────────────────────────────────── */
+.btn { height: var(--control-height); padding: 0 14px; border-radius: var(--radius-control); font-weight: 500; display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.btn-primary { background: var(--primary); color: var(--primary-ink); }
+.btn-primary:hover { opacity: .88; }
+.btn-secondary { background: var(--secondary); }
+.btn-secondary:hover { filter: brightness(.96); }
+.btn-danger { color: var(--negative); box-shadow: inset 0 0 0 1px var(--control); background: var(--surface); }
+.btn:disabled { opacity: .5; cursor: not-allowed; }
+.link { color: var(--text); font-weight: 500; text-decoration: underline; text-decoration-color: var(--control); text-underline-offset: 3px; }
+.link:hover { text-decoration-color: var(--text); }
+.link-danger { color: var(--negative); font-weight: 500; }
+.field { width: 100%; height: 40px; padding: 0 12px; border-radius: 8px; border: 1px solid var(--control); background: var(--surface); }
+.field:focus { outline: none; border-color: var(--hue); box-shadow: 0 0 0 3px var(--hue-pale); }
+.label { display: block; font-weight: 500; margin-bottom: 8px; }
+
+.switch { position: relative; display: inline-block; width: 32px; height: 20px; flex: none; }
+.switch input { position: absolute; inset: 0; margin: 0; opacity: 0; cursor: pointer; z-index: 1; width: 100%; height: 100%; }
+.switch input:disabled { cursor: default; }
+.switch i { position: absolute; inset: 0; border-radius: 99px; background: var(--control); transition: background .15s; }
+.switch i::after { content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: #fff; transition: transform .15s; }
+.switch input:checked + i { background: var(--on); }
+.switch input:checked + i::after { transform: translateX(12px); }
+.switch input:disabled + i { opacity: .45; }
+.switch input:focus-visible + i { outline: 2px solid var(--hue); outline-offset: 2px; }
+
+/* ── cards ─────────────────────────────────────── */
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-card); }
+.card-head { display: flex; align-items: center; gap: 12px; padding: 16px var(--card-pad) 12px; }
+.card-head h2 { margin: 0; font-size: 16px; font-weight: 600; }
+.card-head .meta { margin-left: auto; color: var(--muted); font-size: 12px; }
+.row { display: flex; align-items: center; gap: 12px; min-height: var(--row); padding: 10px var(--card-pad); border-top: 1px solid var(--rule); }
+.row.click { cursor: pointer; }
+.row.click:hover { background: var(--raised); }
+.grow { flex: 1; min-width: 0; }
+.name { font-weight: 500; }
+.sub { color: var(--muted); font-size: 12px; line-height: 18px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.status { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 12px; white-space: nowrap; }
+.dot { width: 6px; height: 6px; border-radius: 50%; background: var(--control); flex: none; }
+.dot.on { background: var(--on); }
+.pill { font-size: 12px; line-height: 20px; padding: 0 8px; border-radius: 4px; background: var(--pill-neutral-bg); color: var(--pill-neutral-ink); white-space: nowrap; flex: none; }
+.empty-line { padding: 14px var(--card-pad) 18px; color: var(--muted); border-top: 1px solid var(--rule); }
+.av { width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; font-size: 13px; font-weight: 600; flex: none; background: hsl(var(--h) 70% 93%); color: hsl(var(--h) 55% 30%); }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .av { background: hsl(var(--h) 28% 22%); color: hsl(var(--h) 60% 82%); } }
+.devs { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 2px; }
+.dev { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 12px; white-space: nowrap; }
+.inv { display: inline-flex; align-items: center; gap: 10px; flex: none; }
+.av.s { width: 22px; height: 22px; font-size: 10.5px; }
+.av.l { width: 48px; height: 48px; font-size: 18px; }
+
+/* KPI strip: one container split by dividers */
+.kpis { display: grid; grid-template-columns: repeat(3, 1fr); margin-bottom: var(--gap); }
+.kpi { padding: 16px var(--card-pad) 18px; }
+.kpi + .kpi { border-left: 1px solid var(--border); }
+.kpi .k-label { color: var(--muted); font-size: 13px; }
+.kpi .k-value { font-size: 30px; line-height: 38px; font-weight: 400; margin-top: 4px; letter-spacing: -.01em; }
+.kpi .k-value small { font-size: 16px; color: var(--muted); }
+.kpi .k-note { color: var(--muted); font-size: 12px; margin-top: 2px; }
+
+.split { display: grid; grid-template-columns: 2fr 1fr; gap: var(--gap); align-items: start; margin-bottom: var(--gap); }
+
+
+.who { display: inline-flex; align-items: center; gap: 8px; }
+.expand-head b { font-weight: 600; }
+/* permissions folded under each person on the overview */
+.disclose { display: inline-flex; align-items: center; gap: 4px; height: 30px; padding: 0 10px; border-radius: var(--radius-control); color: var(--muted); font-weight: 500; flex: none; }
+.disclose:hover { background: var(--raised); color: var(--text); }
+.disclose svg { transition: transform .15s; }
+.disclose[aria-expanded="true"] { color: var(--text); }
+.disclose[aria-expanded="true"] svg { transform: rotate(180deg); }
+.expand { background: var(--raised); border-top: 1px solid var(--rule); padding: 16px var(--card-pad) 20px 64px; display: grid; gap: 16px; }
+.expand-head { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; flex-wrap: wrap; }
+.expand-head .sub { flex: 1; }
+@media (max-width: 760px) { .expand { padding-left: var(--card-pad); } }
+
+/* settings: label column + panel */
+.section { display: grid; grid-template-columns: 300px 1fr; gap: 32px; padding: 28px 0; border-top: 1px solid var(--border); }
+.section:first-of-type { border-top: 0; padding-top: 4px; }
+.section h2 { margin: 0 0 6px; font-size: 16px; font-weight: 600; line-height: 24px; }
+.section .desc { color: var(--muted); }
+.panel { min-width: 0; }
+.perm-table { width: 100%; border-collapse: collapse; }
+.perm-table th, .perm-table td { padding: 10px var(--card-pad); border-top: 1px solid var(--rule); text-align: left; font-weight: 400; }
+.perm-table thead th { border-top: 0; color: var(--muted); font-size: 12px; padding-top: 0; }
+.perm-table .c { text-align: center; width: 128px; }
+.perm-table td.c .switch { vertical-align: middle; }
+.kv { display: flex; align-items: center; min-height: var(--row); padding: 10px var(--card-pad); border-top: 1px solid var(--rule); gap: 16px; }
+.kv:first-child { border-top: 0; }
+.kv .k { flex: 1; }
+.kv .v { color: var(--muted); }
+.mono { font-family: var(--mono); font-size: 12.5px; }
+.id { font-family: var(--mono); font-size: 12.5px; color: var(--muted); word-break: break-all; }
+.form { display: grid; gap: 16px; padding: var(--card-pad); }
+.err { color: var(--negative); font-size: 13px; min-height: 18px; }
+
+/* first run */
+.first { padding: 40px var(--card-pad); display: grid; grid-template-columns: 1fr auto; gap: 24px; align-items: center; }
+.first h2 { margin: 0 0 4px; font-size: 16px; font-weight: 600; }
+.first p { margin: 0; color: var(--muted); max-width: 560px; }
+
+/* sign in */
+.auth-wrap { min-height: 100vh; display: grid; place-items: center; padding: 24px; }
+.auth { width: 380px; max-width: 100%; }
+.auth .mark { padding: 0 0 28px; }
+.auth h1 { margin: 0 0 6px; font-size: 22px; line-height: 28px; font-weight: 600; letter-spacing: -.01em; }
+.auth p { margin: 0 0 24px; color: var(--muted); }
+.auth .stack { display: grid; gap: 14px; }
+
+/* sheet */
+.overlay { position: fixed; inset: 0; background: var(--overlay); display: grid; place-items: center; padding: 20px; z-index: 20; animation: fade .12s ease-out; }
+.sheet { width: 440px; max-width: 100%; max-height: 92vh; overflow: auto; background: var(--surface); border-radius: 12px; box-shadow: var(--float); padding: 24px; animation: rise .16s ease-out; }
+.sheet h3 { margin: 0 0 6px; font-size: 17px; line-height: 24px; font-weight: 600; }
+.sheet .lead { margin: 0 0 18px; color: var(--muted); }
+.sheet-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px; }
+.qr { width: 216px; height: 216px; margin: 4px auto 16px; background: #fff; border-radius: 8px; border: 1px solid var(--border); overflow: hidden; }
+.qr svg { width: 100%; height: 100%; }
+.code { font: 11.5px/17px var(--mono); color: var(--muted); background: var(--raised); border-radius: 6px; padding: 10px 12px; max-height: 72px; overflow: auto; word-break: break-all; user-select: all; }
+.steps { margin: 0 0 16px; padding-left: 18px; color: var(--muted); }
+.steps li + li { margin-top: 2px; }
+.toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); background: var(--primary); color: var(--primary-ink); padding: 10px 16px; border-radius: 8px; font-weight: 500; box-shadow: var(--float); z-index: 30; }
+.toast.error { background: var(--negative); color: #fff; }
+@keyframes fade { from { opacity: 0; } }
+@keyframes rise { from { opacity: 0; transform: translateY(6px); } }
+@media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+
+/* ── tablet and phone ─────────────────────────── */
+@media (max-width: 1000px) {
+  .split { grid-template-columns: 1fr; }
+  .section { grid-template-columns: 1fr; gap: 14px; }
+}
+@media (max-width: 760px) {
+  .shell { grid-template-columns: 1fr; }
+  .side { display: none; position: fixed; inset: 0; height: auto; z-index: 15; border-right: 0; }
+  .side.open { display: flex; }
+  .topbar { display: flex; align-items: center; gap: 12px; height: 48px; padding: 0 16px; border-bottom: 1px solid var(--border); position: sticky; top: 0; background: var(--ground); z-index: 5; }
+  .topbar b { flex: 1; font-weight: 600; }
+  .icon-btn { width: 44px; height: 44px; margin-left: -12px; display: grid; place-items: center; }
+  .canvas { padding: 20px 16px 48px; }
+  .title-row { flex-wrap: wrap; }
+  .title-row .actions { margin-left: 0; width: 100%; }
+  .kpis { grid-template-columns: 1fr 1fr; }
+  .kpi:nth-child(3) { grid-column: 1 / -1; border-left: 0; border-top: 1px solid var(--border); }
+  .first { grid-template-columns: 1fr; }
+  .perm-table .c { width: 84px; padding-left: 8px; padding-right: 8px; }
+  .row, .kv { min-height: 52px; }
+}
 </style>
 </head>
 <body>
 <div id="app"></div>
-<div id="toast" class="toast" hidden></div>
-
+<div id="toast" class="toast" role="status" hidden></div>
 <script>
-const $ = (s, el=document) => el.querySelector(s);
-const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const CAPS = [['files','Files and photos'],['clipboard','Clipboard'],['notifications','Notifications'],['ring','Find my device'],['calls','Calls (coming soon)']];
-const LOGO = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/></svg>';
+'use strict';
+const $ = (s, el = document) => el.querySelector(s);
+const $$ = (s, el = document) => [...el.querySelectorAll(s)];
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
-let S = null;          // server state
-let session = null;    // {configured, authed}
-let timer = null;
+const ICON = {
+  overview: '<path d="M4 13h6V4H4zM14 20h6v-9h-6zM14 4v4h6V4zM4 20h6v-4H4z"/>',
+  server: '<rect x="4" y="4.5" width="16" height="6" rx="1.5"/><rect x="4" y="13.5" width="16" height="6" rx="1.5"/><path d="M8 7.5h.01M8 16.5h.01"/>',
+  plus: '<path d="M12 5v14M5 12h14"/>',
+  out: '<path d="M14 5h4a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1h-4M10 16l-4-4 4-4M6 12h9"/>',
+  phone: '<rect x="7" y="3" width="10" height="18" rx="2"/><path d="M11 18h2"/>',
+  laptop: '<rect x="5" y="5" width="14" height="10" rx="1"/><path d="M3 19h18"/>',
+  menu: '<path d="M4 7h16M4 12h16M4 17h16"/>',
+  close: '<path d="M6 6l12 12M18 6L6 18"/>',
+  link: '<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>',
+  chev: '<path d="M6 9l6 6 6-6"/>',
+  copy: '<rect x="9" y="9" width="11" height="11" rx="1.5"/><path d="M15 9V5.5A1.5 1.5 0 0 0 13.5 4h-8A1.5 1.5 0 0 0 4 5.5v8A1.5 1.5 0 0 0 5.5 15H9"/>',
+};
+const icon = (n, s = 16) => `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICON[n]}</svg>`;
 
-function toast(msg, error=false){
-  const t = $('#toast'); t.textContent = msg; t.className = 'toast' + (error?' error':''); t.hidden = false;
-  clearTimeout(toast.h); toast.h = setTimeout(()=>t.hidden = true, error?5000:2400);
+/* What one person may do on another person's devices. The letter is the mark in the matrix. */
+const CAPS = [
+  { id: 'files', short: 'F', label: 'Files and photos', hint: 'Send a file on purpose' },
+  { id: 'clipboard', short: 'C', label: 'Clipboard', hint: 'Send copied text on purpose' },
+  { id: 'ring', short: 'R', label: 'Find my device', hint: 'Make the device ring' },
+  { id: 'notifications', short: 'N', label: 'Notification mirroring', hint: 'Show notifications automatically' },
+  { id: 'calls', short: 'V', label: 'Calls', hint: 'Not available yet' },
+];
+const defaultAllowed = (from, to, cap) => from === to || cap === 'files' || cap === 'clipboard' || cap === 'ring';
+
+/* Each person keeps a pale tint of their own hue (identity, not data); neighbours sit far apart on the wheel. */
+const HUES = [212, 28, 152, 330, 262, 92, 188, 4];
+function tint(user) {
+  const i = S.users.findIndex(u => u.id === user.id);
+  return `--h:${HUES[(i < 0 ? 0 : i) % HUES.length]}`;
 }
-async function api(path, body){
-  const r = await fetch(path, body === undefined ? {} : {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
-  const j = await r.json().catch(()=>({}));
-  if(!r.ok){ const e = new Error(j.error || r.statusText); e.status = r.status; throw e; }
+const initials = n => String(n).trim().split(/\s+/).map(w => w[0]).join('').slice(0, 2).toUpperCase() || '?';
+const av = (u, size = '') => `<span class="av ${size}" style="${tint(u)}" aria-hidden="true">${esc(initials(u.name))}</span>`;
+const devIcon = p => (p === 'android' || p === 'ios' ? 'phone' : 'laptop');
+const PLATFORM = { android: 'Android', ios: 'iOS', windows: 'Windows', linux: 'Linux', macos: 'macOS' };
+const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+const fmtBytes = n => n < 1024 ? `${n} B` : n < 1048576 ? `${(n / 1024).toFixed(0)} KB` : n < 1073741824 ? `${(n / 1048576).toFixed(1)} MB` : `${(n / 1073741824).toFixed(2)} GB`;
+const fmtUp = s => { const d = Math.floor(s / 86400), h = Math.floor(s % 86400 / 3600), m = Math.floor(s % 3600 / 60); return d ? `${d} d ${h} h` : h ? `${h} h ${m} min` : `${m} min`; };
+const fmtExp = ts => { const s = ts - S.now; if (s <= 0) return 'Expired'; const h = Math.floor(s / 3600); return h >= 1 ? `Expires in ${h} h` : `Expires in ${Math.max(1, Math.floor(s / 60))} min`; };
+const shortId = id => `${id.slice(0, 8)}…`;
+
+let S = null, session = null, timer = null, lastSig = '';
+const expanded = new Set();   // people whose permissions are open on the overview
+
+function toast(msg, error = false) {
+  const t = $('#toast');
+  t.textContent = msg; t.className = 'toast' + (error ? ' error' : ''); t.hidden = false;
+  clearTimeout(toast.h); toast.h = setTimeout(() => (t.hidden = true), error ? 5000 : 2200);
+}
+async function api(path, body) {
+  const r = await fetch(path, body === undefined ? {} : { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) { const e = new Error(j.error || r.statusText); e.status = r.status; throw e; }
   return j;
 }
-const admin = op => api('/api/admin', {op});
-const defaultAllowed = (from,to,cap) => from === to || cap === 'files';
-function allowed(from,to,cap){
-  const r = S.rules.find(x => x.from_user===from && x.to_user===to && x.cap===cap);
-  return r ? r.allow : defaultAllowed(from,to,cap);
+const admin = op => api('/api/admin', { op });
+function allowed(from, to, cap) {
+  const r = S.rules.find(x => x.from_user === from && x.to_user === to && x.cap === cap);
+  return r ? r.allow : defaultAllowed(from, to, cap);
 }
-function ago(ts){ const s=Math.max(0,(S.now||0)-ts); return s; }
-function fmtBytes(n){ if(n<1024) return n+' B'; if(n<1048576) return (n/1024).toFixed(0)+' KB'; if(n<1073741824) return (n/1048576).toFixed(1)+' MB'; return (n/1073741824).toFixed(2)+' GB'; }
-function fmtUp(s){ const d=Math.floor(s/86400),h=Math.floor(s%86400/3600),m=Math.floor(s%3600/60); return d? d+' d '+h+' h' : h? h+' h '+m+' min' : m+' min'; }
-function fmtExp(ts){ const s = ts-(S.now||0); if(s<=0) return 'expired'; const h=Math.floor(s/3600); return h>=1 ? 'expires in '+h+' h' : 'expires in '+Math.max(1,Math.floor(s/60))+' min'; }
-function icon(p){ return p==='android'||p==='ios' ? '📱' : p==='server' ? '🗄️' : '💻'; }
+const devicesOf = u => S.devices.filter(d => d.user_id === u.id);
+const inviteLabel = i => i.label.replace(/^new device for /i, 'Device for ').replace(/^new person: /i, 'New person: ');
+const route = () => location.hash.slice(1) || 'overview';
 
-/* ───────── auth screens ───────── */
-function viewAuth(){
+/* ── sign in ─────────────────────────────────── */
+function viewAuth() {
   const first = !session.configured;
-  $('#app').innerHTML = `<div class="center"><form class="card login" id="f">
-    <div class="logo">${LOGO}</div>
-    <h1>${first ? 'Set up Zima Connect' : 'Sign in'}</h1>
-    <div class="sub">${first ? 'Choose an administrator password for this server page. You will use it to manage people, devices and rules.' : 'Enter the administrator password.'}</div>
-    <div class="field"><input id="pw" type="password" placeholder="Password" autocomplete="${first?'new-password':'current-password'}" autofocus></div>
-    ${first ? '<div class="field"><input id="pw2" type="password" placeholder="Repeat password" autocomplete="new-password"></div><div class="muted" style="margin-top:6px">At least 8 characters.</div>' : ''}
-    <div class="err" id="err"></div>
-    <button class="btn" style="width:100%;margin-top:8px">${first ? 'Continue' : 'Sign in'}</button></form></div>`;
+  $('#app').innerHTML = `<main class="auth-wrap"><form class="auth" id="f">
+    <div class="mark"><span class="mark-glyph">${icon('link', 15)}</span><div><b>Zima Connect</b><span>Household server</span></div></div>
+    <h1>${first ? 'Set an administrator password' : 'Sign in'}</h1>
+    <p>${first ? 'You will use it to add people and devices and to decide what they may do for each other.' : 'Enter the administrator password for this server.'}</p>
+    <div class="stack">
+      <div><label class="label" for="pw">Password</label><input class="field" id="pw" type="password" autocomplete="${first ? 'new-password' : 'current-password'}" required aria-describedby="pwhint"></div>
+      ${first ? '<div><label class="label" for="pw2">Repeat password</label><input class="field" id="pw2" type="password" autocomplete="new-password" required></div><div class="sub" id="pwhint">At least 8 characters.</div>' : ''}
+      <div class="err" id="err" role="alert"></div>
+      <button class="btn btn-primary" style="height:40px;justify-content:center">${first ? 'Continue' : 'Sign in'}</button>
+    </div></form></main>`;
+  $('#pw').focus();
   $('#f').onsubmit = async e => {
     e.preventDefault();
     const pw = $('#pw').value;
-    if(first && pw !== $('#pw2').value){ $('#err').textContent = 'The passwords do not match.'; return; }
-    try { await api(first ? '/api/setup' : '/api/login', {password: pw}); await boot(); }
-    catch(x){ $('#err').textContent = x.message; }
+    if (first && pw !== $('#pw2').value) { $('#err').textContent = 'The passwords do not match.'; return; }
+    try { await api(first ? '/api/setup' : '/api/login', { password: pw }); await boot(); }
+    catch (x) { $('#err').textContent = x.message; }
   };
 }
 
-/* ───────── dashboard ───────── */
-function view(){
-  const owner = S.users.find(u => u.role === 'owner');
-  const setup = S.invites.find(i => i.label.startsWith('setup'));
-  const devsOf = u => S.devices.filter(d => d.user_id === u.id);
-  const pairs = S.users.flatMap(a => S.users.filter(b => b.id !== a.id).map(b => [a,b]));
+/* ── shell ───────────────────────────────────── */
+function shell(r, title, body) {
+  const pending = S.invites.length;
+  const people = S.users.map(u => `<button class="nav-item" data-go="person/${u.id}" ${r === 'person/' + u.id ? 'aria-current="page"' : ''}>${av(u, 's')}<span class="lbl">${esc(u.name)}</span></button>`).join('');
+  return `<div class="shell">
+    <aside class="side" id="side" aria-label="Navigation">
+      <div class="mark"><span class="mark-glyph">${icon('link', 15)}</span><div><b>Zima Connect</b><span>${esc(S.household)}</span></div></div>
+      <nav class="nav">
+        <button class="nav-item" data-go="overview" ${r === 'overview' ? 'aria-current="page"' : ''}>${icon('overview')}<span class="lbl">Overview</span>${pending ? `<span class="count num" title="Invitations waiting">${pending}</span>` : ''}</button>
+        <div class="nav-group">People</div>
+        ${people}
+        <button class="nav-item" data-action="add-person">${icon('plus')}<span class="lbl">Add person</span></button>
+      </nav>
+      <div class="side-foot">
+        <button class="nav-item" data-go="server" ${r === 'server' ? 'aria-current="page"' : ''}>${icon('server')}<span class="lbl">Server</span></button>
+        <button class="nav-item" data-action="logout">${icon('out')}<span class="lbl">Sign out</span></button>
+      </div>
+    </aside>
+    <div>
+      <header class="topbar"><button class="icon-btn" data-action="menu" aria-label="Menu">${icon('menu', 20)}</button><b>${esc(title)}</b></header>
+      <main class="canvas"><div class="content">${body}</div></main>
+    </div></div>`;
+}
 
-  $('#app').innerHTML = `<main>
-  <header class="top"><div class="logo">${LOGO}</div>
-    <div class="grow"><h1>${esc(S.household)}</h1><div class="sub">${S.users.length} ${S.users.length===1?'person':'people'} · ${S.devices.length} ${S.devices.length===1?'device':'devices'} · ${S.devices.filter(d=>d.online).length} online</div></div>
-    <button class="btn ghost" id="pwbtn">Password</button><button class="btn ghost" id="out">Sign out</button></header>
+function render() {
+  if (!S) return;
+  let r = route();
+  const person = r.startsWith('person/') ? S.users.find(u => 'person/' + u.id === r) : null;
+  if (r.startsWith('person/') && !person) r = 'overview';
+  const [title, body] = r === 'server' ? ['Server', pageServer()] : person ? [person.name, pagePerson(person)] : ['Overview', pageOverview()];
+  $('#app').innerHTML = shell(r, title, body);
+  bind();
+}
 
-  ${!owner && setup ? `<div class="notice"><b>Connect the first device.</b> Install Zima Connect on your computer or phone, choose <b>Add device → Join server</b> and scan or paste this code. The first device becomes the owner.
-     <div class="qr">${setup.qr}</div><code class="block">${esc(setup.code)}</code><button class="btn" data-copy="${esc(setup.code)}">Copy code</button></div>` : ''}
+/* ── overview ────────────────────────────────── */
+function pageOverview() {
+  const online = S.devices.filter(d => d.online).length;
+  const finding = !S.users.length ? 'No one is in the household yet.'
+    : !S.devices.length ? `${plural(S.users.length, 'person', 'people')}, no devices yet. Add a device for each person.`
+    : `${online} of ${plural(S.devices.length, 'device', 'devices')} online now${S.invites.length ? ` · ${plural(S.invites.length, 'invitation', 'invitations')} not used yet` : ''}${S.queue.items ? ` · ${plural(S.queue.items, 'item', 'items')} waiting for offline devices` : ''}`;
 
-  <h2>People and devices</h2>
-  <div class="card">${S.users.length ? S.users.map(u => `
-    <div class="person"><div class="row"><div class="avatar">${esc(u.name.slice(0,1).toUpperCase())}</div>
-      <div class="grow"><span class="name">${esc(u.name)}</span></div>
-      <span class="pill">${u.role==='owner'?'Owner':'Member'}</span>
-      <button class="link" data-rename="${u.id}">Rename</button>
-      <button class="link" data-adddev="${u.id}" data-name="${esc(u.name)}">+ Device</button>
-      ${u.role==='owner' ? '' : `<button class="link danger" data-rmuser="${u.id}" data-name="${esc(u.name)}">Remove person</button>`}</div>
-      <div class="devs">${devsOf(u).map(d => `<div class="dev"><span class="dot ${d.online?'on':''}"></span><span>${icon(d.platform)} ${esc(d.name)}</span>
-        <span class="muted">${d.online ? 'online'+(d.rtt_ms!=null?' · '+d.rtt_ms+' ms':'') : 'offline'}</span><span class="grow"></span>
-        <button class="link danger" data-rmdev="${d.id}" data-name="${esc(d.name)}">Remove</button></div>`).join('') || '<div class="muted">No devices</div>'}</div></div>`).join('')
-    : '<div class="pad muted" style="text-align:center">Nobody has joined yet.</div>'}</div>
-  <form class="add" id="addp"><input type="text" id="pname" placeholder="Add a person, e.g. Mom" maxlength="40"><button class="btn" id="addbtn" disabled>Create invitation</button></form>
+  const head = `<div class="title-row"><div><h1>Overview</h1><div class="finding">${esc(finding)}</div></div>
+    <div class="actions"><button class="btn btn-primary" data-action="add-person">${icon('plus', 15)} Add person</button></div></div>`;
 
-  ${S.invites.filter(i=>!i.label.startsWith('setup')).length ? `<h2>Pending invitations</h2><div class="card">${S.invites.filter(i=>!i.label.startsWith('setup')).map(i => `
-    <div class="inv"><div class="grow"><div class="name">${esc(i.label)}</div><div class="muted">${fmtExp(i.expires)}</div></div>
-      <button class="link" data-show="${i.secret}">Show code</button><button class="link danger" data-revoke="${i.secret}">Revoke</button></div>`).join('')}</div>` : ''}
+  if (!S.users.length) {
+    return head + `<section class="card first"><div><h2>Add the people in your home</h2>
+      <p>Create a person for everyone, then add their phones and computers with a code. A person’s own devices work together on their own; you decide what people may do on each other’s devices.</p></div>
+      <button class="btn btn-primary" data-action="add-person">Add person</button></section>`;
+  }
 
-  ${pairs.length ? `<h2>What people can do for each other</h2><div class="muted" style="margin:-4px 0 12px">Rules apply between people. A person’s own devices always work together. By default only files may be sent between people.</div>
-  <div class="grid">${pairs.map(([a,b]) => `<section class="card pol"><div class="pol-title">${esc(a.name)} <span class="arrow">→</span> ${esc(b.name)}</div>
-    <div class="muted" style="margin:2px 0 8px">What ${esc(a.name)} can do on ${esc(b.name)}’s devices</div>
-    ${CAPS.map(([c,l]) => `<label class="sw ${c==='calls'?'off':''}"><span>${l}</span><input type="checkbox" ${allowed(a.id,b.id,c)?'checked':''} ${c==='calls'?'disabled':''} data-rule="${a.id}|${b.id}|${c}"><span class="track"><span class="knob"></span></span></label>`).join('')}</section>`).join('')}</div>` : ''}
+  const kpis = `<section class="card kpis" aria-label="Household at a glance">
+    <div class="kpi"><div class="k-label">People</div><div class="k-value num">${S.users.length}</div><div class="k-note">${plural(S.devices.length, 'device', 'devices')} in total</div></div>
+    <div class="kpi"><div class="k-label">Devices online</div><div class="k-value num">${online} <small>/ ${S.devices.length}</small></div><div class="k-note">checked every 15 seconds</div></div>
+    <div class="kpi"><div class="k-label">Waiting on the server</div><div class="k-value num">${S.queue.items}</div><div class="k-note">${S.queue.items ? `${fmtBytes(S.queue.bytes)}, encrypted for the receiver` : 'nothing for offline devices'}</div></div>
+  </section>`;
 
-  <h2>Server</h2>
-  <div class="stats">
-    <div class="card stat"><span class="muted">Waiting for offline devices</span><b>${S.queue.items} ${S.queue.items===1?'item':'items'}</b><span class="muted">${fmtBytes(S.queue.bytes)} of files</span></div>
-    <div class="card stat"><span class="muted">Running for</span><b>${fmtUp(S.uptime_secs)}</b></div>
-    <div class="card stat"><span class="muted">Household version</span><b>${S.version}</b></div>
-  </div>
-  <div class="card pad" style="margin-top:14px"><div class="muted">Server ID. Devices recognise this server by it. No account or domain needed.</div><div class="id">${esc(S.id)}</div></div>
-  </main>`;
+  const codeFor = u => S.invites.filter(i => i.user === u.id);
+  const peopleRows = S.users.map(u => {
+    const ds = devicesOf(u), on = ds.filter(d => d.online).length, codes = codeFor(u);
+    return `<div class="row">${av(u)}
+      <div class="grow"><div class="name"><button class="link" style="text-decoration:none" data-go="person/${u.id}">${esc(u.name)}</button>${u.role === 'owner' ? ' <span class="pill" style="margin-left:6px">Manages household</span>' : ''}</div>
+        <div class="devs">${ds.length ? ds.map(d => `<span class="dev"><span class="dot ${d.online ? 'on' : ''}"></span>${esc(d.name)}</span>`).join('') : '<span class="dev">No devices yet</span>'}</div></div>
+      ${codes.length ? `<span class="inv"><span class="sub">Code waiting · ${fmtExp(codes[0].expires).toLowerCase()}</span><button class="link" data-show="${codes[0].secret}">Show</button><button class="link-danger" data-revoke="${codes[0].secret}">Cancel</button></span>`
+        : `<button class="link" data-adddev="${u.id}">Add device</button>`}
+      <span class="status num" style="min-width:76px;justify-content:flex-end">${ds.length ? `${on}/${ds.length} online` : '–'}</span>
+      ${S.users.length > 1 ? `<button class="disclose" data-expand="${u.id}" aria-expanded="${expanded.has(u.id)}" aria-controls="perm-${u.id}">Permissions ${icon('chev', 14)}</button>` : ''}</div>
+      ${expanded.has(u.id) ? `<div class="expand" id="perm-${u.id}">${S.users.filter(o => o.id !== u.id).map(o => `
+        <div class="expand-block"><div class="expand-head"><span class="who">${av(o, 's')}<b>With ${esc(o.name)}</b></span><span class="sub">${summary(u, o)}</span>
+          ${isCustom(u, o) ? `<button class="link" data-reset="${u.id}|${o.id}">Back to the default</button>` : ''}</div>
+          <div class="card">${permTable(u, o)}</div></div>`).join('')}</div>` : ''}`;
+  }).join('');
+  const strays = S.invites.filter(i => !i.user).map(i => `<div class="row"><div class="grow"><div class="name">${esc(inviteLabel(i))}</div><div class="sub">${fmtExp(i.expires)}</div></div>
+      <button class="link" data-show="${i.secret}">Show</button><button class="link-danger" data-revoke="${i.secret}">Cancel</button></div>`).join('');
 
-  $('#out').onclick = async () => { await api('/api/logout', {}); await boot(); };
-  $('#pwbtn').onclick = changePassword;
-  const pn = $('#pname'), ab = $('#addbtn');
-  pn.oninput = () => ab.disabled = !pn.value.trim();
-  $('#addp').onsubmit = e => { e.preventDefault(); if(pn.value.trim()) newInvite(null, pn.value.trim()); };
-  document.querySelectorAll('[data-copy]').forEach(b => b.onclick = () => copy(b.dataset.copy, b));
-  document.querySelectorAll('[data-adddev]').forEach(b => b.onclick = () => newInvite(b.dataset.adddev, null));
-  document.querySelectorAll('[data-rename]').forEach(b => b.onclick = () => rename(b.dataset.rename));
-  document.querySelectorAll('[data-rmuser]').forEach(b => b.onclick = () => confirmRun(`Remove ${b.dataset.name} and all their devices?`, {op:'remove_user', id:b.dataset.rmuser}, b.dataset.name+' removed'));
-  document.querySelectorAll('[data-rmdev]').forEach(b => b.onclick = () => confirmRun(`Remove “${b.dataset.name}” from the household? It will stop working with the other devices.`, {op:'remove_device', id:b.dataset.rmdev}, b.dataset.name+' removed'));
-  document.querySelectorAll('[data-revoke]').forEach(b => b.onclick = () => run({op:'revoke_invite', secret:b.dataset.revoke}, 'Invitation revoked'));
-  document.querySelectorAll('[data-show]').forEach(b => b.onclick = () => { const i = S.invites.find(x=>x.secret===b.dataset.show); if(i) showCode(i.label, i.code, i.qr); });
-  document.querySelectorAll('[data-rule]').forEach(cb => cb.onchange = () => {
-    const [from,to,cap] = cb.dataset.rule.split('|');
-    run(cb.checked === defaultAllowed(from,to,cap) ? {op:'clear_rule', from_user:from, to_user:to, cap} : {op:'set_rule', from_user:from, to_user:to, cap, allow:cb.checked});
+  return head + kpis + `<section class="card" style="margin-bottom:var(--gap)" aria-labelledby="h-people"><div class="card-head"><h2 id="h-people">People</h2><span class="meta num">${plural(S.users.length, 'person', 'people')} · ${plural(S.devices.length, 'device', 'devices')}</span></div>${peopleRows}${strays}</section>`;
+}
+
+/* What u and o may do on each other's devices: one row per capability, one switch per direction. */
+function permTable(u, o) {
+  return `<table class="perm-table"><thead><tr><th scope="col">What</th><th scope="col" class="c">${esc(u.name)} → ${esc(o.name)}</th><th scope="col" class="c">${esc(o.name)} → ${esc(u.name)}</th></tr></thead><tbody>
+    ${CAPS.map(c => `<tr><td><div class="name">${esc(c.label)}</div><div class="sub">${esc(c.hint)}</div></td>
+      <td class="c">${toggle(`rule:${u.id}|${o.id}|${c.id}`, allowed(u.id, o.id, c.id), `${c.label}, ${u.name} to ${o.name}`, c.id === 'calls')}</td>
+      <td class="c">${toggle(`rule:${o.id}|${u.id}|${c.id}`, allowed(o.id, u.id, c.id), `${c.label}, ${o.name} to ${u.name}`, c.id === 'calls')}</td></tr>`).join('')}
+  </tbody></table>`;
+}
+const isCustom = (u, o) => S.rules.some(r => (r.from_user === u.id && r.to_user === o.id) || (r.from_user === o.id && r.to_user === u.id));
+const summary = (u, o) => isCustom(u, o) ? 'Changed from the default' : 'Default: files, clipboard and Find my device both ways';
+
+/* ── person ──────────────────────────────────── */
+function pagePerson(u) {
+  const ds = devicesOf(u), on = ds.filter(d => d.online).length;
+  const others = S.users.filter(x => x.id !== u.id);
+  const head = `<div class="title-row">${av(u, 'l')}<div><h1>${esc(u.name)}</h1>
+      <div class="finding num">${ds.length ? `${plural(ds.length, 'device', 'devices')}, ${on} online` : 'No devices yet. Add their phone or computer.'}</div></div>
+    <div class="actions"><button class="btn btn-secondary" data-rename="${u.id}">Rename</button><button class="btn btn-primary" data-adddev="${u.id}">${icon('plus', 15)} Add device</button></div></div>`;
+
+  const devices = `<section class="card" aria-labelledby="h-dev"><div class="card-head"><h2 id="h-dev">Devices</h2><span class="meta">their own devices can always use everything together</span></div>
+    ${ds.length ? ds.map(d => `<div class="row">${icon(devIcon(d.platform))}
+      <div class="grow"><div class="name">${esc(d.name)}</div><div class="sub">${esc(PLATFORM[d.platform] || d.platform)} · <span class="mono" title="${esc(d.id)}">${shortId(d.id)}</span></div></div>
+      <span class="status num"><span class="dot ${d.online ? 'on' : ''}"></span>${d.online ? `Online${d.rtt_ms != null ? `, ${d.rtt_ms} ms` : ''}` : 'Offline'}</span>
+      <button class="link-danger" data-rmdev="${d.id}" data-name="${esc(d.name)}">Remove</button></div>`).join('')
+      : `<div class="empty-line">${esc(u.name)} has no devices yet. <button class="link" data-adddev="${u.id}">Add a device</button></div>`}
+  </section>`;
+
+  const role = `<div class="section"><div><h2>Managing the household</h2><div class="desc">Lets ${esc(u.name)} add people and devices and change permissions from the Zima Connect app, as you can here.</div></div>
+    <div class="panel card"><div class="kv"><div class="k"><div class="name">Manages household</div><div class="sub">${u.role === 'owner' ? 'On' : 'Off'}</div></div>${toggle(`role:${u.id}`, u.role === 'owner', `Manages household`)}</div></div></div>`;
+
+  const pairs = others.map(o => {
+    const custom = S.rules.some(r => (r.from_user === u.id && r.to_user === o.id) || (r.from_user === o.id && r.to_user === u.id));
+    return `<div class="section"><div><h2 class="who">${av(o, 's')}With ${esc(o.name)}</h2>
+        <div class="desc">${custom ? 'Changed from the default.' : 'Default: files, clipboard and Find my device both ways.'}</div>
+        ${custom ? `<p style="margin:10px 0 0"><button class="link" data-reset="${u.id}|${o.id}">Back to the default</button></p>` : ''}</div>
+      <div class="panel card">${permTable(u, o)}</div></div>`;
+  }).join('');
+
+  const remove = `<div class="section"><div><h2>Remove ${esc(u.name)}</h2><div class="desc">Their devices are disconnected from everyone and their permissions are deleted. You can add them again later.</div></div>
+    <div class="panel"><button class="btn btn-danger" data-rmuser="${u.id}" data-name="${esc(u.name)}">Remove ${esc(u.name)}</button></div></div>`;
+
+  return head + devices + `<div style="margin-top:32px">${role}${pairs}${remove}</div>`;
+}
+
+/* ── server ──────────────────────────────────── */
+function pageServer() {
+  return `<div class="title-row"><div><h1>Server</h1><div class="finding">${S.relay ? 'Reachable from outside your home through the relay.' : 'Not connected to the relay: only devices on your home network can reach it.'}</div></div></div>
+    <div class="section"><div><h2>Status</h2><div class="desc">The server passes data between devices and keeps items for devices that are offline.</div></div>
+      <div class="panel card">
+        <div class="kv"><div class="k">Relay</div><span class="status"><span class="dot ${S.relay ? 'on' : ''}"></span>${S.relay ? 'Connected' : 'Not connected'}</span></div>
+        <div class="kv"><div class="k">Running for</div><span class="v num">${fmtUp(S.uptime_secs)}</span></div>
+        <div class="kv"><div class="k">Waiting for offline devices</div><span class="v num">${plural(S.queue.items, 'item', 'items')}, ${fmtBytes(S.queue.bytes)}</span></div>
+      </div></div>
+    <div class="section"><div><h2>Privacy</h2><div class="desc">What this server can and cannot see.</div></div>
+      <div class="panel card"><div class="kv"><div class="k">Items for offline devices are encrypted for the receiving device and signed by the sender, so this server stores them without being able to read them. They are deleted on delivery or after 48 hours. Live transfers go directly between devices whenever possible.</div></div></div></div>
+    <div class="section"><div><h2>Server ID</h2><div class="desc">Devices recognise this server by this ID. No account, domain or open port is needed.</div></div>
+      <div class="panel card"><div class="kv"><div class="k id">${esc(S.id)}</div><button class="link" data-copyid>Copy</button></div></div></div>
+    <div class="section"><div><h2>Administrator password</h2><div class="desc">Used to sign in to this page.</div></div>
+      <form class="panel card form" id="pwf">
+        <div><label class="label" for="cur">Current password</label><input class="field" type="password" id="cur" autocomplete="current-password"></div>
+        <div><label class="label" for="nw">New password</label><input class="field" type="password" id="nw" autocomplete="new-password" aria-describedby="nwhint"><div class="sub" id="nwhint" style="margin-top:6px">At least 8 characters.</div></div>
+        <div class="err" id="pwerr" role="alert"></div>
+        <div style="display:flex;justify-content:flex-end"><button class="btn btn-primary">Change password</button></div>
+      </form></div>`;
+}
+
+function toggle(key, on, name, disabled = false) {
+  return `<label class="switch"><input type="checkbox" role="switch" data-toggle="${esc(key)}" aria-label="${esc(name)}" ${on ? 'checked' : ''} ${disabled ? 'disabled' : ''}><i></i></label>`;
+}
+
+/* ── actions ─────────────────────────────────── */
+function bind() {
+  $$('[data-go]').forEach(el => {
+    el.onclick = () => { location.hash = el.dataset.go; $('#side')?.classList.remove('open'); };
+    if (el.getAttribute('role') === 'link') el.onkeydown = e => { if (e.key === 'Enter') el.click(); };
+  });
+  $$('[data-expand]').forEach(el => el.onclick = () => { const id = el.dataset.expand; expanded.has(id) ? expanded.delete(id) : expanded.add(id); render(); });
+  $$('[data-action="menu"]').forEach(el => el.onclick = () => $('#side').classList.toggle('open'));
+  $$('[data-action="add-person"]').forEach(el => el.onclick = addPersonSheet);
+  $$('[data-action="logout"]').forEach(el => el.onclick = async () => { await api('/api/logout', {}); location.hash = ''; boot(); });
+  $$('[data-adddev]').forEach(el => el.onclick = () => inviteFor(S.users.find(u => u.id === el.dataset.adddev)));
+  $$('[data-rename]').forEach(el => el.onclick = () => renameSheet(S.users.find(u => u.id === el.dataset.rename)));
+  $$('[data-rmdev]').forEach(el => el.onclick = () => confirmSheet(`Remove “${el.dataset.name}”?`, 'It stops working with the other devices. You can add it again later with a new code.', 'Remove device', () => run({ op: 'remove_device', id: el.dataset.rmdev }, `${el.dataset.name} removed`)));
+  $$('[data-rmuser]').forEach(el => el.onclick = () => confirmSheet(`Remove ${el.dataset.name}?`, 'Their devices are disconnected and their permissions are deleted.', `Remove ${el.dataset.name}`, async () => { await run({ op: 'remove_user', id: el.dataset.rmuser }, `${el.dataset.name} removed`); location.hash = 'overview'; }));
+  $$('[data-revoke]').forEach(el => el.onclick = () => run({ op: 'revoke_invite', secret: el.dataset.revoke }, 'Invitation cancelled'));
+  $$('[data-show]').forEach(el => el.onclick = () => { const i = S.invites.find(x => x.secret === el.dataset.show); if (i) codeSheet(inviteLabel(i), i.code, i.qr); });
+  $$('[data-copyid]').forEach(el => el.onclick = () => copyText(S.id, el));
+  $$('[data-reset]').forEach(el => el.onclick = async () => {
+    const [a, b] = el.dataset.reset.split('|');
+    try {
+      for (const r of S.rules.filter(r => (r.from_user === a && r.to_user === b) || (r.from_user === b && r.to_user === a))) {
+        await admin({ op: 'clear_rule', from_user: r.from_user, to_user: r.to_user, cap: r.cap });
+      }
+      toast('Back to the default');
+    } catch (e) { toast(e.message, true); }
+    refresh(true);
+  });
+  $$('[data-toggle]').forEach(el => el.onchange = () => {
+    const [kind, rest] = el.dataset.toggle.split(':');
+    if (kind === 'role') return run({ op: 'set_role', id: rest, owner: el.checked }, 'Saved');
+    const [from, to, cap] = rest.split('|');
+    run(el.checked === defaultAllowed(from, to, cap) ? { op: 'clear_rule', from_user: from, to_user: to, cap } : { op: 'set_rule', from_user: from, to_user: to, cap, allow: el.checked }, 'Saved');
+  });
+  const pwf = $('#pwf');
+  if (pwf) pwf.onsubmit = async e => {
+    e.preventDefault();
+    try { await api('/api/password', { current: $('#cur').value, new: $('#nw').value }); $('#cur').value = $('#nw').value = ''; $('#pwerr').textContent = ''; toast('Password changed'); }
+    catch (x) { $('#pwerr').textContent = x.message; }
+  };
+}
+
+async function run(op, ok) {
+  try { await admin(op); if (ok) toast(ok); } catch (e) { toast(e.message, true); }
+  await refresh(true);
+}
+async function copyText(text, el) {
+  try { await navigator.clipboard.writeText(text); const t = el.textContent; el.textContent = 'Copied'; setTimeout(() => (el.textContent = t), 1400); }
+  catch { toast('Select the text and copy it manually', true); }
+}
+
+function sheet(html, onOpen) {
+  const o = document.createElement('div');
+  o.className = 'overlay';
+  o.innerHTML = `<div class="sheet" role="dialog" aria-modal="true">${html}</div>`;
+  document.body.appendChild(o);
+  const close = () => { o.remove(); document.removeEventListener('keydown', key); render(); };
+  const key = e => { if (e.key === 'Escape') close(); };
+  document.addEventListener('keydown', key);
+  o.addEventListener('mousedown', e => { if (e.target === o) close(); });
+  onOpen(o, close);
+}
+function addPersonSheet() {
+  sheet(`<form id="ap"><h3>Add person</h3><p class="lead">Everyone in your home gets their own person. You will add their phone or computer next.</p>
+    <label class="label" for="pn">Name</label><input class="field" id="pn" maxlength="40" autocomplete="off">
+    <div class="err" id="aperr" role="alert" style="margin-top:8px"></div>
+    <div class="sheet-actions"><button type="button" class="btn btn-secondary" data-close>Cancel</button><button class="btn btn-primary" id="apgo" disabled>Add person</button></div></form>`,
+  (o, close) => {
+    const pn = $('#pn', o); pn.focus();
+    pn.oninput = () => ($('#apgo', o).disabled = !pn.value.trim());
+    $('[data-close]', o).onclick = close;
+    $('#ap', o).onsubmit = async e => {
+      e.preventDefault();
+      try {
+        const { id } = await admin({ op: 'create_user', name: pn.value.trim() });
+        o.remove();
+        await refresh(true);
+        location.hash = 'person/' + id;
+        inviteFor(S.users.find(u => u.id === id));
+      } catch (x) { $('#aperr', o).textContent = x.message; }
+    };
   });
 }
-
-async function run(op, ok){
-  try { await admin(op); if(ok) toast(ok); await refresh(); }
-  catch(e){ toast(e.message, true); await refresh(); }
-}
-function confirmRun(msg, op, ok){ if(confirm(msg)) run(op, ok); }
-function rename(id){
-  const u = S.users.find(x=>x.id===id); const n = prompt('New name', u.name);
-  if(n && n.trim() && n.trim() !== u.name) run({op:'rename_user', id, name:n.trim()}, 'Renamed');
-}
-async function newInvite(userId, name){
+async function inviteFor(u) {
   try {
-    const r = await admin({op:'create_invite', user_id:userId, new_user_name:name});
-    const label = userId ? 'New device for '+S.users.find(u=>u.id===userId).name : 'Invitation for '+name;
-    await refresh(); showCode(label, r.code, r.qr);
-  } catch(e){ toast(e.message, true); }
+    const r = await admin({ op: 'create_invite', user_id: u.id, new_user_name: null });
+    await refresh(true);
+    codeSheet(`Add a device for ${u.name}`, r.code, r.qr);
+  } catch (e) { toast(e.message, true); }
 }
-function showCode(label, code, qr){
-  const o = document.createElement('div'); o.className = 'overlay';
-  o.innerHTML = `<div class="modal"><h3>${esc(label)}</h3>
-    <div class="muted">On the new device install Zima Connect, choose <b>Add device → Join server</b> and scan or paste this code. It works once and expires in 24 hours.</div>
-    <div class="qr">${qr}</div><code class="block">${esc(code)}</code>
-    <div class="row" style="justify-content:flex-end"><button class="btn ghost" id="x">Close</button><button class="btn" id="c">Copy code</button></div></div>`;
-  document.body.appendChild(o);
-  o.onclick = e => { if(e.target === o) o.remove(); };
-  $('#x', o).onclick = () => o.remove();
-  $('#c', o).onclick = e => copy(code, e.target);
+function codeSheet(title, code, qr) {
+  sheet(`<h3>${esc(title)}</h3>
+    <ol class="steps"><li>Install Zima Connect on the phone or computer.</li><li>Choose Add device, then Join server.</li><li>Scan this code, or copy and paste it.</li></ol>
+    <div class="qr" role="img" aria-label="QR code">${qr}</div>
+    <div class="code">${esc(code)}</div>
+    <div class="sub" style="margin-top:8px">Works once and expires in 24 hours.</div>
+    <div class="sheet-actions"><button class="btn btn-secondary" data-copy>${icon('copy', 15)} Copy code</button><button class="btn btn-primary" data-close>Done</button></div>`,
+  (o, close) => { $('[data-close]', o).onclick = close; $('[data-copy]', o).onclick = e => copyText(code, e.currentTarget); });
 }
-function changePassword(){
-  const o = document.createElement('div'); o.className = 'overlay';
-  o.innerHTML = `<form class="modal"><h3>Change password</h3>
-    <div class="field" style="margin-top:12px"><input type="password" id="cur" placeholder="Current password" autocomplete="current-password"></div>
-    <div class="field" style="margin-top:10px"><input type="password" id="nw" placeholder="New password (8+ characters)" autocomplete="new-password"></div>
-    <div class="err" id="e2"></div>
-    <div class="row" style="justify-content:flex-end"><button type="button" class="btn ghost" id="x">Cancel</button><button class="btn">Change</button></div></form>`;
-  document.body.appendChild(o);
-  $('#x', o).onclick = () => o.remove();
-  $('form', o).onsubmit = async e => {
-    e.preventDefault();
-    try { await api('/api/password', {current:$('#cur',o).value, new:$('#nw',o).value}); o.remove(); toast('Password changed'); }
-    catch(x){ $('#e2', o).textContent = x.message; }
-  };
+function renameSheet(u) {
+  sheet(`<form id="rn"><h3>Rename ${esc(u.name)}</h3><label class="label" for="rnv">Name</label><input class="field" id="rnv" value="${esc(u.name)}" maxlength="40">
+    <div class="sheet-actions"><button type="button" class="btn btn-secondary" data-close>Cancel</button><button class="btn btn-primary">Save</button></div></form>`,
+  (o, close) => {
+    const f = $('#rnv', o); f.focus(); f.select();
+    $('[data-close]', o).onclick = close;
+    $('#rn', o).onsubmit = e => { e.preventDefault(); const n = f.value.trim(); close(); if (n && n !== u.name) run({ op: 'rename_user', id: u.id, name: n }, 'Renamed'); };
+  });
 }
-async function copy(text, btn){
-  try { await navigator.clipboard.writeText(text); const t = btn.textContent; btn.textContent = 'Copied'; setTimeout(()=>btn.textContent = t, 1500); }
-  catch { toast('Select the code and copy it manually', true); }
+function confirmSheet(title, text, action, fn) {
+  sheet(`<h3>${esc(title)}</h3><p class="lead">${esc(text)}</p>
+    <div class="sheet-actions"><button class="btn btn-secondary" data-close>Cancel</button><button class="btn btn-danger" data-ok>${esc(action)}</button></div>`,
+  (o, close) => { $('[data-close]', o).onclick = close; $('[data-ok]', o).onclick = () => { o.remove(); fn(); }; });
 }
 
-async function refresh(){
-  try { S = await api('/api/state'); if(!document.querySelector('.overlay')) view(); }
-  catch(e){ if(e.status === 401){ await boot(); } }
+/* ── data ────────────────────────────────────── */
+async function refresh(force = false) {
+  try {
+    S = await api('/api/state');
+    const { now, uptime_secs, ...rest } = S;           // redraw only when something visible changed
+    const sig = JSON.stringify(rest);
+    const busy = document.querySelector('.overlay') || document.activeElement?.matches('input:not([type=checkbox])');
+    if (force || (!busy && sig !== lastSig)) { lastSig = sig; render(); }
+  } catch (e) { if (e.status === 401) boot(); }
 }
-async function boot(){
+async function boot() {
   clearInterval(timer);
-  try { session = await api('/api/session'); } catch { $('#app').innerHTML = '<div class="center"><div class="muted">Server not reachable</div></div>'; return; }
-  if(!session.authed){ viewAuth(); return; }
-  await refresh();
-  timer = setInterval(refresh, 6000);
+  try { session = await api('/api/session'); }
+  catch { $('#app').innerHTML = '<main class="auth-wrap"><p class="sub">The server is not reachable.</p></main>'; return; }
+  if (!session.authed) { viewAuth(); return; }
+  await refresh(true);
+  timer = setInterval(() => refresh(false), 6000);
 }
+addEventListener('hashchange', render);
 boot();
 </script>
 </body>

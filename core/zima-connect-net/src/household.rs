@@ -33,9 +33,11 @@ impl Cap {
         Cap::Calls,
     ];
 
-    /// Between two *different* users only these are allowed unless a rule says otherwise.
+    /// Between two *different* people only these are allowed unless a rule says otherwise.
     pub fn default_cross_user(self) -> bool {
-        matches!(self, Cap::Files)
+        // Things a person does on purpose: send a file or clipboard, find a device.
+        // Automatic mirroring (notifications) and calls need an explicit rule.
+        matches!(self, Cap::Files | Cap::Clipboard | Cap::Ring)
     }
 }
 
@@ -162,6 +164,15 @@ pub enum AdminOp {
     },
     RemoveUser {
         id: String,
+    },
+    /// Create a person (no devices yet). The first person may manage the household from their app.
+    CreateUser {
+        name: String,
+    },
+    /// Allow or forbid a person to manage the household from their app.
+    SetRole {
+        id: String,
+        owner: bool,
     },
     /// Cancel an invitation that was not used yet.
     RevokeInvite {

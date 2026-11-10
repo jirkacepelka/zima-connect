@@ -22,6 +22,7 @@ pub enum Request {
         text: String,
     },
     Ring,
+    RingStop,
     Notify {
         app: String,
         title: String,
@@ -72,6 +73,7 @@ pub enum Response {
     Snapshot { snapshot: SignedSnapshot },
     NotModified,
     InviteCode { code: String },
+    Created { id: String },
     Queued,
     Inbox { entries: Vec<Entry> },
     Entry { entry: Entry },

@@ -18,6 +18,12 @@ import Qr from '$lib/Qr.svelte';
   let toastTimer: ReturnType<typeof setTimeout>;
   let busy = $state<string | null>(null);
 
+  // Find my device: ringing someone else (until), and being rung (by whom).
+  let ringingPeer = $state<{ id: string; until: number } | null>(null);
+  let rungBy = $state<string | null>(null);
+  let audio: AudioContext | null = null;
+  let beepTimer: ReturnType<typeof setInterval> | null = null;
+
   // Add-device dialog
   let dlgOpen = $state(false);
   let tab = $state<'server' | 'show' | 'enter'>('server');
@@ -74,9 +80,12 @@ import Qr from '$lib/Qr.svelte';
     refresh();
     const poll = setInterval(refresh, 5000);
     const tick = setInterval(() => (now = Date.now()), 30000);
+    const ringPoll = setInterval(checkRing, 1000);
     return () => {
       clearInterval(poll);
       clearInterval(tick);
+      clearInterval(ringPoll);
+      stopBeeping();
     };
   });
 
@@ -113,7 +122,74 @@ import Qr from '$lib/Qr.svelte';
   };
   const sendClipboard = () => run('clip', async () => done(await api.sendClipboard(selected!.id), 'Clipboard'), '');
   const sendFile = () => run('file', async () => done(await api.sendFile(selected!.id), 'File'), '');
-  const ring = () => run('ring', () => api.ring(selected!.id), 'Device is ringing');
+  const ring = () =>
+    run(
+      'ring',
+      async () => {
+        await api.ring(selected!.id);
+        ringingPeer = { id: selected!.id, until: Date.now() + 30000 };
+      },
+      'Device is ringing'
+    );
+  const stopRinging = () =>
+    run(
+      'ring',
+      async () => {
+        const id = ringingPeer?.id ?? selected!.id;
+        ringingPeer = null;
+        await api.ringStop(id);
+      },
+      'Stopped ringing'
+    );
+  const isRinging = (id: string) => !!ringingPeer && ringingPeer.id === id && ringingPeer.until > now;
+
+  async function checkRing() {
+    if (ringingPeer && ringingPeer.until < Date.now()) ringingPeer = null;
+    try {
+      const who = await api.ringState();
+      if (who && !rungBy) startBeeping();
+      if (!who && rungBy) stopBeeping();
+      rungBy = who;
+    } catch {
+      /* ignore */
+    }
+  }
+
+  function startBeeping() {
+    try {
+      audio = audio ?? new AudioContext();
+      audio.resume();
+      const beep = () => {
+        if (!audio) return;
+        for (const [t, f] of [[0, 880], [0.25, 1175]] as const) {
+          const o = audio.createOscillator();
+          const g = audio.createGain();
+          o.frequency.value = f;
+          g.gain.setValueAtTime(0.0001, audio.currentTime + t);
+          g.gain.exponentialRampToValueAtTime(0.4, audio.currentTime + t + 0.02);
+          g.gain.exponentialRampToValueAtTime(0.0001, audio.currentTime + t + 0.22);
+          o.connect(g).connect(audio.destination);
+          o.start(audio.currentTime + t);
+          o.stop(audio.currentTime + t + 0.24);
+        }
+      };
+      beep();
+      beepTimer = setInterval(beep, 1200);
+    } catch {
+      /* no audio available */
+    }
+  }
+
+  function stopBeeping() {
+    if (beepTimer) clearInterval(beepTimer);
+    beepTimer = null;
+  }
+
+  async function silence() {
+    stopBeeping();
+    rungBy = null;
+    await api.stopRing();
+  }
 
   async function openDialog(start: 'server' | 'show' | 'enter' = household ? 'show' : 'server') {
     dlgOpen = true;
@@ -376,11 +452,19 @@ import Qr from '$lib/Qr.svelte';
           <span class="a-title">Send file</span>
           <span class="a-sub">{selected.caps.includes('files') ? 'Photos, documents, anything' : 'Not allowed'}</span>
         </button>
-        <button class="action" disabled={!can(selected, 'ring') || !!busy} title={why(selected, 'ring')} onclick={ring}>
-          <span class="a-icon"><Icon name="bell" size={22} /></span>
-          <span class="a-title">Find device</span>
-          <span class="a-sub">{selected.caps.includes('ring') ? 'Make it ring' : 'Not allowed'}</span>
-        </button>
+        {#if isRinging(selected.id)}
+          <button class="action ringing" disabled={!!busy} onclick={stopRinging}>
+            <span class="a-icon"><Icon name="x" size={22} /></span>
+            <span class="a-title">Stop ringing</span>
+            <span class="a-sub">It stops by itself after 30 s</span>
+          </button>
+        {:else}
+          <button class="action" disabled={!can(selected, 'ring') || !!busy} title={why(selected, 'ring')} onclick={ring}>
+            <span class="a-icon"><Icon name="bell" size={22} /></span>
+            <span class="a-title">Find device</span>
+            <span class="a-sub">{selected.caps.includes('ring') ? 'Make it ring' : 'Not allowed'}</span>
+          </button>
+        {/if}
       </section>
 
       <section class="activity">
@@ -485,6 +569,17 @@ import Qr from '$lib/Qr.svelte';
           {inviteCopied ? 'Copied' : 'Copy code'}
         </button>
       </div>
+    </div>
+  </div>
+{/if}
+
+{#if rungBy}
+  <div class="overlay ring-overlay" role="alertdialog" aria-label="Find my device">
+    <div class="modal ring-modal">
+      <div class="ring-icon"><Icon name="bell" size={34} /></div>
+      <h3>{rungBy} is looking for this computer</h3>
+      <p class="hint">It stops by itself after 30 seconds.</p>
+      <button class="primary big" onclick={silence}>Stop</button>
     </div>
   </div>
 {/if}
@@ -1083,5 +1178,33 @@ import Qr from '$lib/Qr.svelte';
   }
   .qr-wrap {
     margin-top: 14px;
+  }
+  .action.ringing .a-icon {
+    background: color-mix(in srgb, var(--warn) 14%, transparent);
+    color: var(--warn);
+  }
+  .ring-modal {
+    text-align: center;
+    padding: 32px 28px 28px;
+  }
+  .ring-modal h3 {
+    margin: 14px 0 6px;
+    font-size: 19px;
+  }
+  .ring-icon {
+    width: 72px;
+    height: 72px;
+    margin: 0 auto;
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+    background: var(--accent-soft);
+    color: var(--accent);
+    animation: pulse 1.2s ease-in-out infinite;
+  }
+  @keyframes pulse {
+    50% {
+      transform: scale(1.08);
+    }
   }
 </style>

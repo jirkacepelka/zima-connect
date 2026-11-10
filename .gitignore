@@ -58,3 +58,6 @@ Thumbs.db
 /android/.gradle/
 /android/build/
 /android/app/build/
+
+# design tooling output
+/.taste-skill/

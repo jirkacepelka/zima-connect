@@ -13,6 +13,24 @@ fn cfg(dir: &std::path::Path, name: &str, hub: bool) -> NodeConfig {
 }
 
 /// A device that is offline gets its clipboard and files from the server when it is back.
+/// The administrator creates the first person in the dashboard and an invitation for their device.
+async fn first_code(hub: &Node) -> String {
+    let id = hub
+        .hub_admin(AdminOp::CreateUser {
+            name: "Jiri".into(),
+        })
+        .await
+        .unwrap()
+        .unwrap();
+    hub.hub_admin(AdminOp::CreateInvite {
+        user_id: Some(id),
+        new_user_name: None,
+    })
+    .await
+    .unwrap()
+    .unwrap()
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn offline_queue() {
     let tmp = std::env::temp_dir().join(format!("zc-queue-{}", std::process::id()));
@@ -20,12 +38,9 @@ async fn offline_queue() {
     let pc = Node::start(cfg(&tmp, "pc", false)).await.unwrap();
     let phone = Node::start(cfg(&tmp, "phone", false)).await.unwrap();
 
-    pc.join(
-        &hub.hub_dashboard().unwrap().invites[0].code,
-        Some("Jiri".into()),
-    )
-    .await
-    .unwrap();
+    pc.join(&first_code(&hub).await, Some("Jiri".into()))
+        .await
+        .unwrap();
     let me = pc.household_info().unwrap().me.id;
     let code = pc
         .admin(AdminOp::CreateInvite {
@@ -54,6 +69,19 @@ async fn offline_queue() {
     assert_eq!(
         pc.send_file(&phone_id, &file).await.unwrap(),
         Delivery::Queued
+    );
+
+    // The server only holds ciphertext: neither the clipboard text nor the file content is readable there.
+    let mailbox = tmp.join("hub").join("data").join("mailbox");
+    let mut stored = Vec::new();
+    for e in std::fs::read_dir(&mailbox).unwrap().flatten() {
+        stored.extend(std::fs::read(e.path()).unwrap());
+    }
+    assert!(stored.len() > 700_000, "file was not stored");
+    assert!(!stored.windows(19).any(|w| w == b"while you were away"));
+    assert!(
+        !stored.windows(64).any(|w| w.iter().all(|b| *b == 9)),
+        "file content stored in clear"
     );
 
     // The phone comes back and collects everything.

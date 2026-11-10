@@ -19,6 +19,19 @@ use sha2::{Digest, Sha256};
 use zima_connect_net::{AdminOp, Node, NodeConfig};
 
 const DASHBOARD: &str = include_str!("dashboard.html");
+const FONT_SANS: &[u8] = include_bytes!("fonts/Geist-Variable.woff2");
+const FONT_MONO: &[u8] = include_bytes!("fonts/GeistMono-Variable.woff2");
+
+fn font(bytes: &'static [u8]) -> Response {
+    (
+        [
+            (header::CONTENT_TYPE, "font/woff2"),
+            (header::CACHE_CONTROL, "public, max-age=31536000, immutable"),
+        ],
+        bytes,
+    )
+        .into_response()
+}
 const SESSION_COOKIE: &str = "zc_session";
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -235,7 +248,7 @@ async fn state(State(st): St, headers: HeaderMap) -> Response {
     let invites: Vec<Value> = d
         .invites
         .iter()
-        .map(|i| json!({ "secret": i.secret, "label": i.label, "code": i.code, "expires": i.expires, "qr": qr_svg(&i.code) }))
+        .map(|i| json!({ "secret": i.secret, "user": i.user, "label": i.label, "code": i.code, "expires": i.expires, "qr": qr_svg(&i.code) }))
         .collect();
     let (queued, queued_bytes) = st.node.hub_mailbox_stats().unwrap_or((0, 0));
     Json(json!({
@@ -248,6 +261,7 @@ async fn state(State(st): St, headers: HeaderMap) -> Response {
         "invites": invites,
         "queue": { "items": queued, "bytes": queued_bytes },
         "uptime_secs": st.started.elapsed().as_secs(),
+        "relay": st.node.wait_online(Duration::from_millis(1)).await,
         "now": now(),
     }))
     .into_response()
@@ -262,8 +276,12 @@ async fn admin(State(st): St, headers: HeaderMap, Json(b): Json<AdminBody>) -> R
     if !st.authed(&headers) {
         return err(StatusCode::UNAUTHORIZED, "sign in first");
     }
+    let is_invite = matches!(b.op, AdminOp::CreateInvite { .. });
     match st.node.hub_admin(b.op).await {
-        Ok(Some(code)) => Json(json!({ "code": code, "qr": qr_svg(&code) })).into_response(),
+        Ok(Some(code)) if is_invite => {
+            Json(json!({ "code": code, "qr": qr_svg(&code) })).into_response()
+        }
+        Ok(Some(id)) => Json(json!({ "id": id })).into_response(),
         Ok(None) => Json(json!({ "ok": true })).into_response(),
         Err(e) => err(StatusCode::BAD_REQUEST, &format!("{e}")),
     }
@@ -331,6 +349,14 @@ async fn main() -> anyhow::Result<()> {
     let app = Router::new()
         .route("/", get(|| async { Html(DASHBOARD) }))
         .route("/health", get(|| async { "ok" }))
+        .route(
+            "/fonts/Geist-Variable.woff2",
+            get(|| async { font(FONT_SANS) }),
+        )
+        .route(
+            "/fonts/GeistMono-Variable.woff2",
+            get(|| async { font(FONT_MONO) }),
+        )
         .route("/api/session", get(session))
         .route("/api/setup", post(setup))
         .route("/api/login", post(login))

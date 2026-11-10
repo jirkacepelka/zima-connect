@@ -12,6 +12,24 @@ fn cfg(dir: &std::path::Path, name: &str, hub: bool) -> NodeConfig {
 }
 
 /// Leaving tells the server; the administrator can remove any device and revoke invitations.
+/// The administrator creates the first person in the dashboard and an invitation for their device.
+async fn first_code(hub: &Node) -> String {
+    let id = hub
+        .hub_admin(AdminOp::CreateUser {
+            name: "Jiri".into(),
+        })
+        .await
+        .unwrap()
+        .unwrap();
+    hub.hub_admin(AdminOp::CreateInvite {
+        user_id: Some(id),
+        new_user_name: None,
+    })
+    .await
+    .unwrap()
+    .unwrap()
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn leave_and_admin() {
     let tmp = std::env::temp_dir().join(format!("zc-leave-{}", std::process::id()));
@@ -19,12 +37,9 @@ async fn leave_and_admin() {
     let pc = Node::start(cfg(&tmp, "pc", false)).await.unwrap();
     let phone = Node::start(cfg(&tmp, "phone", false)).await.unwrap();
 
-    pc.join(
-        &hub.hub_dashboard().unwrap().invites[0].code,
-        Some("Jiri".into()),
-    )
-    .await
-    .unwrap();
+    pc.join(&first_code(&hub).await, Some("Jiri".into()))
+        .await
+        .unwrap();
     let owner = pc.household_info().unwrap().me.id;
     let code = pc
         .admin(AdminOp::CreateInvite {

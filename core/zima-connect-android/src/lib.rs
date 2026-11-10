@@ -141,6 +141,10 @@ async fn dispatch(method: &str, args_json: &str) -> anyhow::Result<Value> {
             n.ring(&a.id).await?;
             Value::Null
         }
+        "ring_stop" => {
+            n.ring_stop(&a.id).await?;
+            Value::Null
+        }
         "pull_inbox" => json!(n.pull_inbox().await?),
         other => anyhow::bail!("unknown method {other}"),
     })

@@ -86,12 +86,21 @@ fn main() {
                         }
                         Event::Ring { from_name, .. } => {
                             state.log("ring", "Found by device", from_name.clone(), true, None);
+                            *state.ringing.lock().unwrap() = Some((from_name.clone(), std::time::Instant::now()));
+                            if let Some(w) = handle.get_webview_window("main") {
+                                let _ = w.unminimize();
+                                let _ = w.show();
+                                let _ = w.set_focus();
+                            }
                             let _ = handle
                                 .notification()
                                 .builder()
                                 .title("Zima Connect")
                                 .body(format!("{from_name} is looking for this computer"))
                                 .show();
+                        }
+                        Event::RingStop { .. } => {
+                            *state.ringing.lock().unwrap() = None;
                         }
                         Event::Notification { from_name, app, title, body, .. } => {
                             state.log("notification", format!("{app}: {title}"), format!("from {from_name}"), true, None);
@@ -124,6 +133,9 @@ fn main() {
             commands::send_clipboard,
             commands::send_file,
             commands::ring_device,
+            commands::ring_stop_device,
+            commands::get_ring_state,
+            commands::stop_ring,
             commands::reveal_path,
         ])
         .run(tauri::generate_context!())

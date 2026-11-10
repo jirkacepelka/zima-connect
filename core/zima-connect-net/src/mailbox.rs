@@ -7,10 +7,37 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use anyhow::{bail, Result};
 use serde::{Deserialize, Serialize};
 
-/// What can wait in the mailbox.
+/// What kind of item it is. The server sees this (for policy and quotas), not the content.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Kind {
+    Clipboard,
+    Notify,
+    File,
+}
+
+/// An item as the server sees it: everything readable is sealed for the recipient device.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Item {
+    pub kind: Kind,
+    /// Base64 of the sealed [`Payload`].
+    pub meta: String,
+    /// The sender's signature over the sealed meta bytes (proves who sent it).
+    pub sig: iroh::Signature,
+    /// Sealed body bytes that follow on the stream (files only, otherwise 0).
+    pub size: u64,
+}
+
+impl Item {
+    pub fn is_file(&self) -> bool {
+        self.kind == Kind::File
+    }
+}
+
+/// What only the recipient can read.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
-pub enum Item {
+pub enum Payload {
     Clipboard {
         text: String,
     },
@@ -19,17 +46,12 @@ pub enum Item {
         title: String,
         body: String,
     },
-    /// Raw bytes follow on the stream when depositing / fetching.
     File {
         name: String,
         size: u64,
+        /// sha256 of the sealed body header, binds the body to this signed item.
+        body: String,
     },
-}
-
-impl Item {
-    pub fn is_file(&self) -> bool {
-        matches!(self, Item::File { .. })
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -124,13 +146,7 @@ impl Mailbox {
         let all = self.all();
         let bytes = all
             .iter()
-            .map(|e| {
-                if let Item::File { size, .. } = e.item {
-                    size
-                } else {
-                    0
-                }
-            })
+            .map(|e| if e.item.is_file() { e.item.size } else { 0 })
             .sum();
         (all.len(), bytes)
     }
@@ -152,20 +168,15 @@ impl Mailbox {
 
     /// Reserve a slot for a new item. For files the caller then writes `data_path(id)`.
     pub fn reserve(&self, to: &str, from: &str, from_name: &str, item: Item) -> Result<Entry> {
-        if let Item::File { size, .. } = &item {
+        if item.is_file() {
+            let size = &item.size;
             if *size > MAX_FILE {
                 bail!("file too large for the server queue (limit 1 GB)");
             }
             let waiting: u64 = self
                 .for_device(to)
                 .iter()
-                .map(|e| {
-                    if let Item::File { size, .. } = e.item {
-                        size
-                    } else {
-                        0
-                    }
-                })
+                .map(|e| if e.item.is_file() { e.item.size } else { 0 })
                 .sum();
             if waiting + size > MAX_PER_DEVICE {
                 bail!("the device's queue on the server is full");

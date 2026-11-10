@@ -9,6 +9,8 @@ import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.Font
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -48,13 +50,22 @@ private val Dark = darkColorScheme(
     error = Color(0xFFFF6369),
 )
 
+/** Geist (SIL OFL 1.1, Vercel), bundled in res/font. */
+val Geist = FontFamily(
+    Font(R.font.geist_regular, FontWeight.Normal),
+    Font(R.font.geist_medium, FontWeight.Medium),
+    Font(R.font.geist_semibold, FontWeight.SemiBold),
+)
+
 private val Type = Typography(
-    titleLarge = TextStyle(fontSize = 22.sp, fontWeight = FontWeight.SemiBold),
-    titleMedium = TextStyle(fontSize = 16.sp, fontWeight = FontWeight.SemiBold),
-    bodyLarge = TextStyle(fontSize = 15.sp),
-    bodyMedium = TextStyle(fontSize = 14.sp),
-    bodySmall = TextStyle(fontSize = 12.5.sp),
-    labelLarge = TextStyle(fontSize = 14.sp, fontWeight = FontWeight.SemiBold),
+    titleLarge = TextStyle(fontFamily = Geist, fontSize = 22.sp, fontWeight = FontWeight.SemiBold, letterSpacing = (-0.2).sp),
+    titleMedium = TextStyle(fontFamily = Geist, fontSize = 16.sp, fontWeight = FontWeight.SemiBold),
+    titleSmall = TextStyle(fontFamily = Geist, fontSize = 14.sp, fontWeight = FontWeight.Medium),
+    bodyLarge = TextStyle(fontFamily = Geist, fontSize = 15.sp),
+    bodyMedium = TextStyle(fontFamily = Geist, fontSize = 14.sp),
+    bodySmall = TextStyle(fontFamily = Geist, fontSize = 12.5.sp),
+    labelLarge = TextStyle(fontFamily = Geist, fontSize = 14.sp, fontWeight = FontWeight.Medium),
+    labelMedium = TextStyle(fontFamily = Geist, fontSize = 12.sp, fontWeight = FontWeight.Medium),
 )
 
 private val Round = Shapes(

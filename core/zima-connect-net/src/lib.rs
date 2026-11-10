@@ -14,6 +14,7 @@ mod household;
 mod hub;
 mod mailbox;
 mod proto;
+mod seal;
 mod store;
 
 use std::collections::HashMap;
@@ -30,7 +31,7 @@ use tokio::sync::broadcast;
 
 pub use household::{AdminOp, Cap, Device, Role, Rule, SignedSnapshot, Snapshot, User};
 use hub::{HubCore, Outcome};
-use mailbox::{Item, Mailbox};
+use mailbox::{Item, Kind, Mailbox, Payload};
 use proto::{read_msg, write_msg, Request, Response};
 pub use store::Peer;
 use store::Store;
@@ -93,6 +94,11 @@ pub enum Event {
         from: String,
         from_name: String,
     },
+    /// The sender stopped its "find my device" ring.
+    RingStop {
+        from: String,
+        from_name: String,
+    },
     Notification {
         from: String,
         from_name: String,
@@ -130,6 +136,7 @@ pub struct HouseholdInfo {
 #[derive(Debug, Clone, Serialize)]
 pub struct InviteOut {
     pub secret: String,
+    pub user: Option<String>,
     pub label: String,
     pub code: String,
     pub expires: u64,
@@ -178,6 +185,18 @@ impl std::fmt::Display for Unreachable {
 }
 
 impl std::error::Error for Unreachable {}
+
+/// What follows a request on the stream.
+enum Body {
+    /// Raw file bytes (direct, already end-to-end encrypted by QUIC).
+    Plain(tokio::fs::File, u64),
+    /// File sealed for the recipient (for the server queue).
+    Sealed {
+        file: tokio::fs::File,
+        size: u64,
+        sealer: Box<seal::Sealer>,
+    },
+}
 
 /// How a send ended.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -432,6 +451,7 @@ impl Node {
                 Ok(None)
             }
             Response::InviteCode { code } => Ok(Some(code)),
+            Response::Created { id } => Ok(Some(id)),
             Response::Err { message } => bail!("{message}"),
             _ => bail!("unexpected response"),
         }
@@ -454,6 +474,7 @@ impl Node {
                 .invites
                 .into_iter()
                 .map(|i| InviteOut {
+                    user: i.user.clone(),
                     code: self.wrap_join_code(&i.secret),
                     secret: i.secret.clone(),
                     label: i.label,
@@ -502,6 +523,7 @@ impl Node {
         };
         match outcome {
             Outcome::Invite(secret) => Ok(Some(self.wrap_join_code(&secret))),
+            Outcome::Created(id) => Ok(Some(id)),
             Outcome::Changed => Ok(None),
         }
     }
@@ -726,10 +748,10 @@ impl Node {
         Ok(start.elapsed())
     }
 
-    /// Send clipboard text to a peer (kept on the server if the peer is offline).
+    /// Send clipboard text to a peer (sealed and kept on the server if the peer is offline).
     pub async fn send_clipboard(&self, peer_id: &str, text: String) -> Result<Delivery> {
         let req = Request::Clipboard { text: text.clone() };
-        self.deliver(peer_id, Cap::Clipboard, req, Item::Clipboard { text })
+        self.deliver(peer_id, Cap::Clipboard, req, Payload::Clipboard { text })
             .await
     }
 
@@ -741,7 +763,15 @@ impl Node {
         )
     }
 
-    /// Mirror a notification to a peer (kept on the server if the peer is offline).
+    /// Stop a ring started with [`Node::ring`].
+    pub async fn ring_stop(&self, peer_id: &str) -> Result<()> {
+        self.expect_ok(
+            self.request_peer(peer_id, Request::RingStop, Some(Cap::Ring), None)
+                .await?,
+        )
+    }
+
+    /// Mirror a notification to a peer (sealed and kept on the server if the peer is offline).
     pub async fn send_notification(
         &self,
         peer_id: &str,
@@ -754,15 +784,16 @@ impl Node {
             title: title.into(),
             body: body.into(),
         };
-        let item = Item::Notify {
+        let payload = Payload::Notify {
             app: app.into(),
             title: title.into(),
             body: body.into(),
         };
-        self.deliver(peer_id, Cap::Notifications, req, item).await
+        self.deliver(peer_id, Cap::Notifications, req, payload)
+            .await
     }
 
-    /// Stream a file to a peer (kept on the server if the peer is offline).
+    /// Stream a file to a peer (sealed and kept on the server if the peer is offline).
     pub async fn send_file(&self, peer_id: &str, path: &Path) -> Result<Delivery> {
         let meta = tokio::fs::metadata(path).await.context("reading file")?;
         let size = meta.len();
@@ -777,7 +808,12 @@ impl Node {
             size,
         };
         match self
-            .request_peer(peer_id, req, Some(Cap::Files), Some((file, size)))
+            .request_peer(
+                peer_id,
+                req,
+                Some(Cap::Files),
+                Some(Body::Plain(file, size)),
+            )
             .await
         {
             Ok(r) => {
@@ -785,22 +821,46 @@ impl Node {
                 Ok(Delivery::Delivered)
             }
             Err(e) if self.should_queue(peer_id, &e) => {
+                let rcpt: EndpointId = peer_id.parse().map_err(|e| anyhow!("bad peer id: {e}"))?;
+                let sealer = seal::Sealer::new(&rcpt)?;
+                let payload = Payload::File {
+                    name,
+                    size,
+                    body: seal::header_hash(&sealer.header),
+                };
                 let file = tokio::fs::File::open(path).await?;
-                self.deposit(peer_id, Item::File { name, size }, Some((file, size)))
-                    .await
+                let body = Body::Sealed {
+                    file,
+                    size,
+                    sealer: Box::new(sealer),
+                };
+                self.deposit(peer_id, Kind::File, payload, Some(body)).await
             }
             Err(e) => Err(e),
         }
     }
 
-    /// Try the device directly; if it is offline hand the item to the server.
-    async fn deliver(&self, peer_id: &str, cap: Cap, req: Request, item: Item) -> Result<Delivery> {
+    /// Try the device directly; if it is offline hand the sealed item to the server.
+    async fn deliver(
+        &self,
+        peer_id: &str,
+        cap: Cap,
+        req: Request,
+        payload: Payload,
+    ) -> Result<Delivery> {
         match self.request_peer(peer_id, req, Some(cap), None).await {
             Ok(r) => {
                 self.expect_ok(r)?;
                 Ok(Delivery::Delivered)
             }
-            Err(e) if self.should_queue(peer_id, &e) => self.deposit(peer_id, item, None).await,
+            Err(e) if self.should_queue(peer_id, &e) => {
+                let kind = if cap == Cap::Notifications {
+                    Kind::Notify
+                } else {
+                    Kind::Clipboard
+                };
+                self.deposit(peer_id, kind, payload, None).await
+            }
             Err(e) => Err(e),
         }
     }
@@ -817,15 +877,30 @@ impl Node {
                 .is_some_and(|m| m.snapshot.device(peer_id).is_some())
     }
 
+    /// Seal `payload` for the recipient, sign it, and leave it on the server.
     async fn deposit(
         &self,
         peer_id: &str,
-        item: Item,
-        body: Option<(tokio::fs::File, u64)>,
+        kind: Kind,
+        payload: Payload,
+        body: Option<Body>,
     ) -> Result<Delivery> {
         let hub = {
             let g = self.inner.membership.lock().unwrap();
             g.as_ref().ok_or_else(|| anyhow!("not joined"))?.hub.clone()
+        };
+        let rcpt: EndpointId = peer_id.parse().map_err(|e| anyhow!("bad peer id: {e}"))?;
+        let meta = seal::seal_bytes(&rcpt, &serde_json::to_vec(&payload)?)?;
+        let sig = self.inner.endpoint.secret_key().sign(&meta);
+        let size = match &body {
+            Some(Body::Sealed { size, .. }) => seal::sealed_size(*size),
+            _ => 0,
+        };
+        let item = Item {
+            kind,
+            meta: base64::engine::general_purpose::STANDARD.encode(&meta),
+            sig,
+            size,
         };
         let req = Request::Deposit {
             to: peer_id.to_string(),
@@ -882,48 +957,116 @@ impl Node {
             Response::Err { message } => bail!("{message}"),
             _ => bail!("unexpected response"),
         };
+        let result = self.open_entry(&entry, &mut recv).await;
+        conn.close(0u32.into(), b"done");
+        // Delivered, or permanently unusable (bad signature, not allowed): the server can forget it.
+        let _ = self
+            .request(hub.clone(), Request::Ack { id: entry.id }, None)
+            .await;
+        result
+    }
+
+    /// Verify, authorise and decrypt one queued item, then emit it as a normal event.
+    async fn open_entry<R: tokio::io::AsyncRead + Unpin>(
+        &self,
+        entry: &mailbox::Entry,
+        recv: &mut R,
+    ) -> Result<()> {
+        let from: EndpointId = entry.from.parse().map_err(|_| anyhow!("bad sender id"))?;
+        let meta = base64::engine::general_purpose::STANDARD
+            .decode(&entry.item.meta)
+            .map_err(|_| anyhow!("corrupted item"))?;
+        from.verify(&meta, &entry.item.sig)
+            .map_err(|_| anyhow!("item is not signed by its sender"))?;
+        let cap = match entry.item.kind {
+            Kind::Clipboard => Cap::Clipboard,
+            Kind::Notify => Cap::Notifications,
+            Kind::File => Cap::Files,
+        };
+        // Same rules as for live delivery, checked on this device.
+        let who = self
+            .authorize(&entry.from, Some(cap))
+            .await
+            .map_err(|m| anyhow!(m))?;
+        let payload: Payload =
+            serde_json::from_slice(&seal::open_bytes(self.inner.endpoint.secret_key(), &meta)?)?;
         let ev = &self.inner.events;
-        match entry.item {
-            Item::Clipboard { text } => {
+        match payload {
+            Payload::Clipboard { text } if entry.item.kind == Kind::Clipboard => {
                 let _ = ev.send(Event::Clipboard {
-                    from: entry.from.clone(),
-                    from_name: entry.from_name.clone(),
+                    from: who.id,
+                    from_name: who.name,
                     text,
                 });
             }
-            Item::Notify { app, title, body } => {
+            Payload::Notify { app, title, body } if entry.item.kind == Kind::Notify => {
                 let _ = ev.send(Event::Notification {
-                    from: entry.from.clone(),
-                    from_name: entry.from_name.clone(),
+                    from: who.id,
+                    from_name: who.name,
                     app,
                     title,
                     body,
                 });
             }
-            Item::File { name, size } => {
+            Payload::File { name, size, body } if entry.item.kind == Kind::File => {
+                let total = entry.item.size;
+                if total != seal::sealed_size(size) {
+                    bail!("corrupted item");
+                }
+                let mut header = [0u8; seal::HEADER];
+                recv.read_exact(&mut header).await?;
+                if seal::header_hash(&header) != body {
+                    bail!("file does not belong to this item");
+                }
+                let mut opener = seal::Opener::new(self.inner.endpoint.secret_key(), &header)?;
                 let path = unique_path(&self.inner.cfg.download_dir, &name).await;
                 let mut f = tokio::fs::File::create(&path).await?;
-                let mut limited = (&mut recv).take(size);
-                let n = tokio::io::copy(&mut limited, &mut f).await?;
-                f.flush().await?;
-                if n != size {
+                let mut consumed = seal::HEADER as u64;
+                let mut written = 0u64;
+                let ok: Result<()> = async {
+                    loop {
+                        let mut len = [0u8; 4];
+                        recv.read_exact(&mut len).await?;
+                        let len = u32::from_be_bytes(len) as usize;
+                        if len > seal::Opener::MAX_CT {
+                            bail!("corrupted item");
+                        }
+                        let mut ct = vec![0u8; len];
+                        recv.read_exact(&mut ct).await?;
+                        consumed += 4 + len as u64;
+                        if consumed > total {
+                            bail!("corrupted item");
+                        }
+                        let last = consumed == total;
+                        let pt = opener.open(&ct, last)?;
+                        written += pt.len() as u64;
+                        f.write_all(&pt).await?;
+                        if last {
+                            break;
+                        }
+                    }
+                    if written != size {
+                        bail!("incomplete file");
+                    }
+                    f.flush().await?;
+                    Ok(())
+                }
+                .await;
+                if let Err(e) = ok {
+                    drop(f);
                     let _ = tokio::fs::remove_file(&path).await;
-                    bail!("incomplete file");
+                    return Err(e);
                 }
                 let _ = ev.send(Event::FileReceived {
-                    from: entry.from.clone(),
-                    from_name: entry.from_name.clone(),
+                    from: who.id,
+                    from_name: who.name,
                     name,
                     path: path.to_string_lossy().into_owned(),
                     size,
                 });
             }
+            _ => bail!("item kind does not match its content"),
         }
-        conn.close(0u32.into(), b"done");
-        // Only now is it safe for the server to forget the item.
-        let _ = self
-            .request(hub.clone(), Request::Ack { id: entry.id }, None)
-            .await;
         Ok(())
     }
 
@@ -947,7 +1090,7 @@ impl Node {
         peer_id: &str,
         req: Request,
         cap: Option<Cap>,
-        body: Option<(tokio::fs::File, u64)>,
+        body: Option<Body>,
     ) -> Result<Response> {
         self.can_send(peer_id, cap)?;
         let id: EndpointId = peer_id.parse().map_err(|e| anyhow!("bad peer id: {e}"))?;
@@ -958,7 +1101,7 @@ impl Node {
         &self,
         addr: EndpointAddr,
         req: Request,
-        body: Option<(tokio::fs::File, u64)>,
+        body: Option<Body>,
     ) -> Result<Response> {
         let conn = tokio::time::timeout(
             Duration::from_secs(8),
@@ -969,11 +1112,33 @@ impl Node {
         let conn = conn.map_err(|e| anyhow::Error::new(Unreachable(e.to_string())))?;
         let (mut send, mut recv) = ctx(conn.open_bi().await)?;
         write_msg(&mut send, &req).await?;
-        if let Some((mut file, len)) = body {
-            let copied = tokio::io::copy(&mut file, &mut send).await?;
-            if copied != len {
-                bail!("file changed while sending");
+        match body {
+            Some(Body::Plain(mut file, len)) => {
+                let copied = tokio::io::copy(&mut file, &mut send).await?;
+                if copied != len {
+                    bail!("file changed while sending");
+                }
             }
+            Some(Body::Sealed {
+                mut file,
+                size,
+                mut sealer,
+            }) => {
+                send.write_all(&sealer.header).await?;
+                let mut remaining = size;
+                let mut buf = vec![0u8; seal::CHUNK];
+                loop {
+                    let n = remaining.min(seal::CHUNK as u64) as usize;
+                    file.read_exact(&mut buf[..n]).await?;
+                    remaining -= n as u64;
+                    let last = remaining == 0;
+                    send.write_all(&sealer.seal(&buf[..n], last)?).await?;
+                    if last {
+                        break;
+                    }
+                }
+            }
+            None => {}
         }
         ctx(send.finish())?;
         let resp: Response = read_msg(&mut recv).await?;
@@ -1093,10 +1258,10 @@ impl Node {
         let err = |m: String| (Response::Err { message: m }, None);
         Ok(match req {
             Request::Deposit { to, item } => {
-                let cap = match item {
-                    Item::Clipboard { .. } => Cap::Clipboard,
-                    Item::Notify { .. } => Cap::Notifications,
-                    Item::File { .. } => Cap::Files,
+                let cap = match item.kind {
+                    Kind::Clipboard => Cap::Clipboard,
+                    Kind::Notify => Cap::Notifications,
+                    Kind::File => Cap::Files,
                 };
                 let from_name = match hub.check_deposit(remote, to, cap) {
                     Ok(n) => n,
@@ -1106,13 +1271,15 @@ impl Node {
                     Ok(e) => e,
                     Err(e) => return Ok(err(format!("{e}"))),
                 };
-                if let Item::File { size, .. } = &entry.item {
+                if entry.item.is_file() {
+                    // Sealed bytes: the server stores what it cannot read.
+                    let size = entry.item.size;
                     let path = mb.data_path(&entry.id);
                     let mut f = tokio::fs::File::create(&path).await?;
-                    let mut limited = recv.take(*size);
+                    let mut limited = recv.take(size);
                     let n = tokio::io::copy(&mut limited, &mut f).await?;
                     f.flush().await?;
-                    if n != *size {
+                    if n != size {
                         let _ = tokio::fs::remove_file(&path).await;
                         return Ok(err("incomplete file".into()));
                     }
@@ -1178,6 +1345,7 @@ impl Node {
                     };
                 }
                 match hub.apply(op) {
+                    Ok(Outcome::Created(id)) => Response::Created { id },
                     Ok(Outcome::Invite(secret)) => Response::InviteCode {
                         code: self.wrap_join_code(&secret),
                     },
@@ -1202,7 +1370,7 @@ impl Node {
     ) -> Result<Response> {
         let cap = match req {
             Request::Clipboard { .. } => Some(Cap::Clipboard),
-            Request::Ring => Some(Cap::Ring),
+            Request::Ring | Request::RingStop => Some(Cap::Ring),
             Request::Notify { .. } => Some(Cap::Notifications),
             Request::File { .. } => Some(Cap::Files),
             _ => None, // Ping
@@ -1219,6 +1387,13 @@ impl Node {
                     from: who.id,
                     from_name: who.name,
                     text: text.clone(),
+                });
+                Response::Ok
+            }
+            Request::RingStop => {
+                let _ = ev.send(Event::RingStop {
+                    from: who.id,
+                    from_name: who.name,
                 });
                 Response::Ok
             }

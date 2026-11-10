@@ -64,18 +64,22 @@ export const api = {
   sendClipboard: (peerId: string) => invoke<Delivery>('send_clipboard', { peerId }),
   sendFile: (peerId: string) => invoke<Delivery | null>('send_file', { peerId }),
   ring: (peerId: string) => invoke<void>('ring_device', { peerId }),
+  ringStop: (peerId: string) => invoke<void>('ring_stop_device', { peerId }),
+  ringState: () => invoke<string | null>('get_ring_state'),
+  stopRing: () => invoke<void>('stop_ring'),
   reveal: (path: string) => invoke<void>('reveal_path', { path })
 };
 
 export const errText = (e: unknown) => String(e).replace(/^Error:\s*/, '');
 
-/** Same default as the Rust side: own devices all allowed, between people only files. */
+/** Same rule as the Rust side. */
 export function allowed(h: Household['snapshot'], from: string, to: string, cap: Cap): boolean {
   const r = h.rules.find((x) => x.from_user === from && x.to_user === to && x.cap === cap);
   if (r) return r.allow;
-  return from === to || cap === 'files';
+  return defaultAllowed(from, to, cap);
 }
 
+/** Own devices: everything. Between people: things done on purpose (files, clipboard, find my device). */
 export function defaultAllowed(from: string, to: string, cap: Cap): boolean {
-  return from === to || cap === 'files';
+  return from === to || cap === 'files' || cap === 'clipboard' || cap === 'ring';
 }

@@ -45,7 +45,9 @@ data class Household(
     }
 }
 
-fun defaultAllowed(from: String, to: String, cap: String) = from == to || cap == "files"
+/** Own devices: everything. Between people: things done on purpose (files, clipboard, find my device). */
+fun defaultAllowed(from: String, to: String, cap: String) =
+    from == to || cap == "files" || cap == "clipboard" || cap == "ring"
 
 data class Activity(val ts: Long, val kind: String, val title: String, val detail: String, val ok: Boolean = true)
 
@@ -112,6 +114,9 @@ object AppModel {
     var myId by mutableStateOf("")
     var deviceName by mutableStateOf("")
     var startError by mutableStateOf<String?>(null)
+
+    /** Who is making this phone ring right now (null = silent). */
+    var ringingFrom by mutableStateOf<String?>(null)
 
     /** Completes once the Rust node is running. */
     val ready = CompletableDeferred<Boolean>()

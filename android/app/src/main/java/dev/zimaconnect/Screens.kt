@@ -233,7 +233,21 @@ fun App(shared: List<Uri>, clearShared: () -> Unit) {
             }
         },
     ) { pad ->
-        Box(Modifier.padding(pad).fillMaxSize()) {
+        Column(Modifier.padding(pad).fillMaxSize()) {
+        AppModel.ringingFrom?.let { from ->
+            Card(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
+            ) {
+                Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Outlined.NotificationsActive, null, tint = Accent)
+                    Spacer(Modifier.width(12.dp))
+                    Text("$from is looking for this phone", modifier = Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
+                    Button(onClick = { Ringer.stop(ctx) }) { Text("Stop") }
+                }
+            }
+        }
+        Box(Modifier.weight(1f).fillMaxWidth()) {
             when (val s = screen) {
                 Screen.Home -> HomeScreen(
                     onOpen = { screen = Screen.Device(it) },
@@ -247,6 +261,7 @@ fun App(shared: List<Uri>, clearShared: () -> Unit) {
                 Screen.Household -> HouseholdScreen(::say) { code, label -> invite = code to label }
                 Screen.Settings -> SettingsScreen(::say) { screen = Screen.Home }
             }
+        }
         }
     }
 
@@ -370,6 +385,13 @@ private fun DeviceScreen(c: Contact, say: (String) -> Unit) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     var busy by remember { mutableStateOf(false) }
+    var ringing by remember(c.id) { mutableStateOf(false) }
+    LaunchedEffect(ringing) {
+        if (ringing) {
+            delay(30_000)
+            ringing = false
+        }
+    }
 
     fun can(cap: String) = cap in c.caps && (c.online || (!c.direct && cap != "ring"))
 
@@ -446,20 +468,32 @@ private fun DeviceScreen(c: Contact, say: (String) -> Unit) {
                 if ("files" in c.caps) "Photos, documents, anything" else "Not allowed",
                 can("files") && !busy,
             ) { pick() }
-            ActionCard(
-                Icons.Outlined.NotificationsActive, "Find device",
-                if ("ring" in c.caps) "Make it ring" else "Not allowed",
-                can("ring") && !busy,
-            ) {
-                scope.launch {
-                    busy = true
-                    try {
-                        Api.call("ring", Api.args("id" to c.id))
-                        say("Device is ringing")
-                    } catch (e: Throwable) {
-                        say(e.message ?: "Could not reach the device")
-                    } finally {
-                        busy = false
+            if (ringing) {
+                ActionCard(Icons.Outlined.Close, "Stop ringing", "It stops by itself after 30 s", !busy) {
+                    scope.launch {
+                        ringing = false
+                        runCatching { Api.call("ring_stop", Api.args("id" to c.id)) }
+                            .onSuccess { say("Stopped ringing") }
+                            .onFailure { say(it.message ?: "Could not reach the device") }
+                    }
+                }
+            } else {
+                ActionCard(
+                    Icons.Outlined.NotificationsActive, "Find device",
+                    if ("ring" in c.caps) "Make it ring" else "Not allowed",
+                    can("ring") && !busy,
+                ) {
+                    scope.launch {
+                        busy = true
+                        try {
+                            Api.call("ring", Api.args("id" to c.id))
+                            ringing = true
+                            say("Device is ringing")
+                        } catch (e: Throwable) {
+                            say(e.message ?: "Could not reach the device")
+                        } finally {
+                            busy = false
+                        }
                     }
                 }
             }

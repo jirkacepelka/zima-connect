@@ -42,6 +42,8 @@ pub struct InviteView {
     /// Human description, e.g. "new person: Mom" or "device for Jiří".
     pub label: String,
     pub expires: u64,
+    /// The person this invitation adds a device for (None = a new person).
+    pub user: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -59,6 +61,8 @@ pub enum Outcome {
     Changed,
     /// Secret of a freshly created invite (the node wraps it into a join code).
     Invite(String),
+    /// Id of a freshly created person.
+    Created(String),
 }
 
 pub struct HubCore {
@@ -103,33 +107,11 @@ impl HubCore {
         Ok(())
     }
 
-    /// Drop expired invites; make sure a setup invite exists until an owner has joined.
+    /// Drop expired invites.
     fn prune_and_bootstrap(&self) -> Result<()> {
         let mut d = self.data.lock().unwrap();
         let t = now();
         d.invites.retain(|_, i| i.expires > t);
-        let has_owner = d.users.iter().any(|u| u.role == Role::Owner);
-        let has_owner_invite = d.invites.values().any(|i| {
-            matches!(
-                i.target,
-                InviteTarget::NewUser {
-                    role: Role::Owner,
-                    ..
-                }
-            )
-        });
-        if !has_owner && !has_owner_invite {
-            d.invites.insert(
-                rand_hex(16),
-                Invite {
-                    target: InviteTarget::NewUser {
-                        name: None,
-                        role: Role::Owner,
-                    },
-                    expires: t + INVITE_TTL_SECS,
-                },
-            );
-        }
         self.save(&d)
     }
 
@@ -159,6 +141,10 @@ impl HubCore {
             .map(|(s, i)| InviteView {
                 secret: s.clone(),
                 expires: i.expires,
+                user: match &i.target {
+                    InviteTarget::Existing { user_id } => Some(user_id.clone()),
+                    _ => None,
+                },
                 label: match &i.target {
                     InviteTarget::NewUser {
                         name,
@@ -400,12 +386,42 @@ impl HubCore {
                 let Some(u) = d.users.iter().find(|u| &u.id == id) else {
                     bail!("unknown person")
                 };
-                if u.role == Role::Owner {
-                    bail!("the owner cannot be removed");
+                if u.role == Role::Owner && !admin {
+                    bail!("only the server administrator can remove a manager");
                 }
                 d.users.retain(|u| &u.id != id);
                 d.devices.retain(|x| &x.user_id != id);
                 d.rules.retain(|r| &r.from_user != id && &r.to_user != id);
+                Outcome::Changed
+            }
+            AdminOp::CreateUser { name } => {
+                let n = name.trim();
+                if n.is_empty() {
+                    bail!("name cannot be empty");
+                }
+                if d.users.iter().any(|u| u.name.eq_ignore_ascii_case(n)) {
+                    bail!("a person with this name already exists");
+                }
+                let role = if d.users.is_empty() {
+                    Role::Owner
+                } else {
+                    Role::Member
+                };
+                let id = rand_hex(4);
+                d.users.push(User {
+                    id: id.clone(),
+                    name: n.to_string(),
+                    role,
+                });
+                d.version += 1;
+                self.save(&d)?;
+                return Ok(Outcome::Created(id));
+            }
+            AdminOp::SetRole { id, owner } => {
+                let Some(u) = d.users.iter_mut().find(|u| &u.id == id) else {
+                    bail!("unknown person")
+                };
+                u.role = if *owner { Role::Owner } else { Role::Member };
                 Outcome::Changed
             }
             AdminOp::RevokeInvite { secret } => {

@@ -1,3 +1,17 @@
+/* Geist (SIL OFL 1.1, Vercel), bundled with the app. */
+@font-face {
+  font-family: 'Geist';
+  src: url('/fonts/Geist-Variable.woff2') format('woff2');
+  font-weight: 100 900;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Geist Mono';
+  src: url('/fonts/GeistMono-Variable.woff2') format('woff2');
+  font-weight: 100 900;
+  font-display: swap;
+}
+
 /* Zima Connect — calm, native-feeling UI. Follows the system light/dark setting.
    Solid surfaces, soft shadows, one accent colour. No glass effects. */
 
@@ -25,8 +39,8 @@
 
   --radius: 14px;
   --radius-sm: 10px;
-  --font: 'Segoe UI Variable Text', 'Segoe UI', system-ui, -apple-system, BlinkMacSystemFont, 'Helvetica Neue', Arial, sans-serif;
-  --mono: ui-monospace, 'Cascadia Code', SFMono-Regular, Menlo, Consolas, monospace;
+  --font: 'Geist', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --mono: 'Geist Mono', ui-monospace, 'Cascadia Code', Menlo, Consolas, monospace;
 }
 
 @media (prefers-color-scheme: dark) {

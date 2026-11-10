@@ -188,6 +188,32 @@ pub async fn ring_device(peer_id: String, state: State<'_, SharedState>) -> Resu
     }
 }
 
+/// Stop a ring this computer started on another device.
+#[tauri::command]
+pub async fn ring_stop_device(peer_id: String, state: State<'_, SharedState>) -> Result<(), String> {
+    state.node.ring_stop(&peer_id).await.map_err(|e| format!("{e:#}"))
+}
+
+/// Who is ringing this computer right now (rings stop by themselves after 30 s).
+#[tauri::command]
+pub fn get_ring_state(state: State<'_, SharedState>) -> Option<String> {
+    let mut g = state.ringing.lock().unwrap();
+    match g.as_ref() {
+        Some((_, since)) if since.elapsed() > Duration::from_secs(30) => {
+            *g = None;
+            None
+        }
+        Some((who, _)) => Some(who.clone()),
+        None => None,
+    }
+}
+
+/// Silence "find my device" on this computer.
+#[tauri::command]
+pub fn stop_ring(state: State<'_, SharedState>) {
+    *state.ringing.lock().unwrap() = None;
+}
+
 /// Reveal a received file in the system file manager.
 #[tauri::command]
 pub fn reveal_path(path: String) {

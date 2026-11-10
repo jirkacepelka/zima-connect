@@ -10,8 +10,10 @@ import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
 import android.media.AudioAttributes
-import android.media.Ringtone
+import android.media.MediaPlayer
 import android.media.RingtoneManager
+import android.os.Handler
+import android.os.Looper
 import android.os.Build
 import android.os.Environment
 import android.os.IBinder
@@ -112,8 +114,9 @@ class ConnectService : Service() {
             "ring" -> {
                 val from = ev.getString("from_name")
                 AppModel.log("ring", "Found by $from", "")
-                Ringer.start(this)
+                Ringer.start(this, from)
             }
+            "ring_stop" -> Ringer.stop(this)
             "paired", "joined", "household_updated" -> AppModel.refresh()
         }
     }
@@ -152,34 +155,74 @@ class ConnectService : Service() {
     }
 }
 
-/** "Find my phone": loud alarm sound and vibration until stopped (or 30 s). */
+/**
+ * "Find my phone": loud alarm sound and vibration.
+ * Stops on: the Stop button (notification or in the app), opening the app, the sender's
+ * "Stop ringing", or after 30 seconds at the latest (a main-thread timer that always fires).
+ */
 object Ringer {
-    private var ringtone: Ringtone? = null
-    private var stopper: Job? = null
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+    private const val RING_ID = 999
+    private const val MAX_MS = 30_000L
+    private val main = Handler(Looper.getMainLooper())
+    private var player: MediaPlayer? = null
+    private var appCtx: Context? = null
+    private val autoStop = Runnable { appCtx?.let { stop(it) } }
 
-    fun start(ctx: Context) {
-        stop()
-        val uri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
-            ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
-        ringtone = RingtoneManager.getRingtone(ctx, uri)?.apply {
-            audioAttributes = AudioAttributes.Builder()
-                .setUsage(AudioAttributes.USAGE_ALARM)
-                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                .build()
-            isLooping = true
-            play()
+    fun start(ctx: Context, from: String) {
+        val app = ctx.applicationContext
+        main.post {
+            stopNow(app)
+            appCtx = app
+            AppModel.ringingFrom = from
+            val uri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
+                ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
+            player = runCatching {
+                MediaPlayer().apply {
+                    setAudioAttributes(
+                        AudioAttributes.Builder()
+                            .setUsage(AudioAttributes.USAGE_ALARM)
+                            .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                            .build(),
+                    )
+                    setDataSource(app, uri)
+                    isLooping = true
+                    prepare()
+                    start()
+                }
+            }.getOrNull()
+            vibrator(app).vibrate(VibrationEffect.createWaveform(longArrayOf(0, 600, 400), 0))
+            showNotification(app, from)
+            main.postDelayed(autoStop, MAX_MS)
         }
-        val pattern = longArrayOf(0, 600, 400)
+    }
+
+    /** Safe to call from any thread, any number of times. */
+    fun stop(ctx: Context) {
+        val app = ctx.applicationContext
+        if (Looper.myLooper() == Looper.getMainLooper()) stopNow(app) else main.post { stopNow(app) }
+    }
+
+    private fun stopNow(app: Context) {
+        main.removeCallbacks(autoStop)
+        player?.let { p ->
+            runCatching { if (p.isPlaying) p.stop() }
+            runCatching { p.release() }
+        }
+        player = null
+        runCatching { vibrator(app).cancel() }
+        runCatching { NotificationManagerCompat.from(app).cancel(RING_ID) }
+        AppModel.ringingFrom = null
+    }
+
+    private fun vibrator(ctx: Context): Vibrator =
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             ctx.getSystemService(VibratorManager::class.java).defaultVibrator
-                .vibrate(VibrationEffect.createWaveform(pattern, 0))
         } else {
             @Suppress("DEPRECATION")
-            (ctx.getSystemService(Context.VIBRATOR_SERVICE) as Vibrator)
-                .vibrate(VibrationEffect.createWaveform(pattern, 0))
+            ctx.getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
         }
 
+    private fun showNotification(ctx: Context, from: String) {
         val stopIntent = PendingIntent.getBroadcast(
             ctx, 1, Intent(ctx, StopRingReceiver::class.java), PendingIntent.FLAG_IMMUTABLE,
         )
@@ -188,38 +231,17 @@ object Ringer {
         )
         val n = NotificationCompat.Builder(ctx, ZimaConnectApp.CH_RING)
             .setSmallIcon(R.drawable.ic_stat)
-            .setContentTitle("Someone is looking for this phone")
+            .setContentTitle("$from is looking for this phone")
             .setContentText("Tap Stop to silence it")
             .setContentIntent(open)
+            .setDeleteIntent(stopIntent) // swiping it away also stops the sound
             .addAction(0, "Stop", stopIntent)
-            .setOngoing(true)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setCategory(NotificationCompat.CATEGORY_ALARM)
+            .setAutoCancel(true)
             .build()
         runCatching { NotificationManagerCompat.from(ctx).notify(RING_ID, n) }
-
-        stopper = scope.launch {
-            delay(30_000)
-            stop(ctx)
-        }
     }
-
-    fun stop(ctx: Context? = null) {
-        stopper?.cancel()
-        runCatching { ringtone?.stop() }
-        ringtone = null
-        if (ctx != null) {
-            runCatching { NotificationManagerCompat.from(ctx).cancel(RING_ID) }
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                ctx.getSystemService(VibratorManager::class.java).defaultVibrator.cancel()
-            } else {
-                @Suppress("DEPRECATION")
-                (ctx.getSystemService(Context.VIBRATOR_SERVICE) as Vibrator).cancel()
-            }
-        }
-    }
-
-    private const val RING_ID = 999
 }
 
 class StopRingReceiver : BroadcastReceiver() {
