@@ -8,6 +8,7 @@ fn cfg(dir: &std::path::Path, name: &str) -> NodeConfig {
         device_name: name.into(),
         platform: "test".into(),
         internet: false,
+        hub: None,
     }
 }
 

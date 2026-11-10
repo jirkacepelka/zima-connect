@@ -1,24 +1,15 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { invoke } from '@tauri-apps/api/core';
   import Icon from '$lib/Icon.svelte';
+  import HouseholdView from '$lib/HouseholdView.svelte';
+  import { api, errText, CAPS, type Activity, type Cap, type Contact, type Household } from '$lib/api';
 
-  type Peer = { id: string; name: string; platform: string; online: boolean; rtt_ms: number | null };
-  type Activity = {
-    id: number;
-    ts: number;
-    kind: string;
-    title: string;
-    detail: string;
-    ok: boolean;
-    path: string | null;
-  };
-  type Identity = { id: string; name: string; platform: string };
-
-  let identity = $state<Identity | null>(null);
-  let peers = $state<Peer[]>([]);
+  let identity = $state<{ id: string; name: string; platform: string } | null>(null);
+  let contacts = $state<Contact[]>([]);
+  let household = $state<Household | null>(null);
   let activities = $state<Activity[]>([]);
   let selectedId = $state<string | null>(null);
+  let view = $state<'device' | 'household'>('device');
   let loaded = $state(false);
   let now = $state(Date.now());
 
@@ -26,16 +17,37 @@
   let toastTimer: ReturnType<typeof setTimeout>;
   let busy = $state<string | null>(null);
 
-  // Pairing dialog
-  let pairOpen = $state(false);
-  let pairTab = $state<'show' | 'enter'>('show');
+  // Add-device dialog
+  let dlgOpen = $state(false);
+  let tab = $state<'server' | 'show' | 'enter'>('server');
+  let serverCode = $state('');
+  let yourName = $state('');
   let myCode = $state('');
   let codeLoading = $state(false);
   let codeCopied = $state(false);
   let enteredCode = $state('');
-  let pairing = $state(false);
+  let working = $state(false);
 
-  const selected = $derived(peers.find((p) => p.id === selectedId) ?? peers[0] ?? null);
+  // Invitation code dialog (owner creates for a new device / person)
+  let invite = $state<{ code: string; label: string } | null>(null);
+  let inviteCopied = $state(false);
+
+  const selected = $derived(contacts.find((c) => c.id === selectedId) ?? contacts[0] ?? null);
+
+  const groups = $derived.by(() => {
+    const mine = contacts.filter((c) => c.mine);
+    const direct = contacts.filter((c) => c.direct);
+    const byUser = new Map<string, Contact[]>();
+    for (const c of contacts.filter((c) => !c.mine && !c.direct)) {
+      const k = c.user_name ?? 'Others';
+      byUser.set(k, [...(byUser.get(k) ?? []), c]);
+    }
+    const out: { label: string; items: Contact[] }[] = [];
+    if (mine.length) out.push({ label: 'My devices', items: mine });
+    for (const [k, items] of byUser) out.push({ label: k, items });
+    if (direct.length) out.push({ label: 'Paired directly', items: direct });
+    return out;
+  });
 
   function say(text: string, error = false) {
     toast = { text, error };
@@ -43,13 +55,12 @@
     toastTimer = setTimeout(() => (toast = null), error ? 5000 : 2600);
   }
 
-  const errText = (e: unknown) => String(e).replace(/^Error:\s*/, '');
-
   async function refresh() {
     try {
-      activities = await invoke<Activity[]>('get_activities');
-      peers = await invoke<Peer[]>('get_peers');
-      if (!selectedId && peers.length) selectedId = peers[0].id;
+      household = await api.household();
+      activities = await api.activities();
+      contacts = await api.contacts();
+      if (!selectedId && contacts.length) selectedId = contacts[0].id;
     } catch (e) {
       say(errText(e), true);
     } finally {
@@ -58,7 +69,7 @@
   }
 
   onMount(() => {
-    invoke<Identity>('get_identity').then((i) => (identity = i));
+    api.identity().then((i) => (identity = i));
     refresh();
     const poll = setInterval(refresh, 5000);
     const tick = setInterval(() => (now = Date.now()), 30000);
@@ -82,76 +93,114 @@
     }
   }
 
-  const sendClipboard = () =>
-    run('clip', () => invoke('send_clipboard', { peerId: selected!.id }), 'Clipboard sent');
-  const sendFile = () =>
-    run('file', () => invoke('send_file', { peerId: selected!.id }), 'File sent');
-  const ring = () => run('ring', () => invoke('ring_device', { peerId: selected!.id }), 'Device is ringing');
+  const can = (c: Contact, cap: Cap) => c.online && c.caps.includes(cap);
+  const why = (c: Contact, cap: Cap) =>
+    !c.caps.includes(cap)
+      ? `Not allowed for ${c.user_name ?? 'this device'} by your household rules`
+      : !c.online
+        ? 'Device is not reachable right now'
+        : '';
 
-  async function openPairing() {
-    pairOpen = true;
-    pairTab = 'show';
+  const sendClipboard = () => run('clip', () => api.sendClipboard(selected!.id), 'Clipboard sent');
+  const sendFile = () => run('file', () => api.sendFile(selected!.id), 'File sent');
+  const ring = () => run('ring', () => api.ring(selected!.id), 'Device is ringing');
+
+  async function openDialog(start: 'server' | 'show' | 'enter' = household ? 'show' : 'server') {
+    dlgOpen = true;
+    serverCode = '';
     enteredCode = '';
-    codeCopied = false;
-    myCode = '';
-    codeLoading = true;
-    try {
-      myCode = await invoke<string>('create_pairing_code');
-    } catch (e) {
-      say(errText(e), true);
-    } finally {
-      codeLoading = false;
+    await setTab(start);
+  }
+
+  async function setTab(t: 'server' | 'show' | 'enter') {
+    tab = t;
+    if (t === 'show') {
+      myCode = '';
+      codeCopied = false;
+      codeLoading = true;
+      try {
+        myCode = await api.pairingCode();
+      } catch (e) {
+        say(errText(e), true);
+      } finally {
+        codeLoading = false;
+      }
     }
   }
 
-  async function copyCode() {
+  async function copy(text: string, flag: 'code' | 'invite') {
     try {
-      await navigator.clipboard.writeText(myCode);
-      codeCopied = true;
-      setTimeout(() => (codeCopied = false), 1800);
+      await navigator.clipboard.writeText(text);
+      if (flag === 'code') codeCopied = true;
+      else inviteCopied = true;
+      setTimeout(() => {
+        codeCopied = false;
+        inviteCopied = false;
+      }, 1800);
     } catch {
       say('Could not copy. Select the code and copy it manually.', true);
     }
   }
 
-  async function submitPair() {
-    if (!enteredCode.trim() || pairing) return;
-    pairing = true;
+  async function submitServer() {
+    if (!serverCode.trim() || working) return;
+    working = true;
     try {
-      const name = await invoke<string>('pair_device', { code: enteredCode.trim() });
-      pairOpen = false;
+      const name = await api.join(serverCode.trim(), yourName.trim() || null);
+      dlgOpen = false;
+      say(`Joined ${name}`);
+      await refresh();
+    } catch (e) {
+      say(errText(e), true);
+    } finally {
+      working = false;
+    }
+  }
+
+  async function submitPair() {
+    if (!enteredCode.trim() || working) return;
+    working = true;
+    try {
+      const name = await api.pair(enteredCode.trim());
+      dlgOpen = false;
       say(`Paired with ${name}`);
       await refresh();
-      const p = peers.find((x) => x.name === name);
+      const p = contacts.find((x) => x.name === name);
       if (p) selectedId = p.id;
     } catch (e) {
       say(errText(e), true);
     } finally {
-      pairing = false;
+      working = false;
     }
   }
 
   async function unpair() {
     if (!selected) return;
-    const name = selected.name;
-    if (!confirm(`Remove “${name}”? You can pair it again later.`)) return;
+    const s = selected;
+    const msg = s.direct
+      ? `Remove “${s.name}”? You can pair it again later.`
+      : `Remove “${s.name}” from the household? Only the household owner can do this from the Household page.`;
+    if (!s.direct) {
+      say('Devices in a household are removed by the owner on the Household page.');
+      return;
+    }
+    if (!confirm(msg)) return;
     try {
-      await invoke('unpair_device', { id: selected.id });
+      await api.unpair(s.id);
       selectedId = null;
-      say(`${name} removed`);
+      say(`${s.name} removed`);
       refresh();
     } catch (e) {
       say(errText(e), true);
     }
   }
 
-  // After pairing from the *other* device, this one learns about it through polling.
-  // Close the dialog automatically if that happens while the code is shown.
+  // Close the "show my code" dialog automatically when another device pairs with it.
   let knownCount = 0;
   $effect(() => {
-    const n = peers.length;
-    if (n > knownCount && pairOpen && pairTab === 'show') {
-      pairOpen = false;
+    const n = contacts.length;
+    if (n > knownCount && dlgOpen && tab === 'show') {
+      dlgOpen = false;
       say('Device paired');
     }
     knownCount = n;
@@ -187,10 +236,13 @@
   }
 
   const activityIcon = (k: string) =>
-    ({ clipboard: 'clipboard', file: 'file', ring: 'bell', pair: 'link' } as Record<string, string>)[k] ?? 'bell';
+    ({ clipboard: 'clipboard', file: 'file', ring: 'bell', notification: 'bell', pair: 'link' } as Record<string, string>)[k] ?? 'bell';
 
   function onKey(e: KeyboardEvent) {
-    if (e.key === 'Escape' && pairOpen) pairOpen = false;
+    if (e.key === 'Escape') {
+      dlgOpen = false;
+      invite = null;
+    }
   }
 </script>
 
@@ -203,29 +255,43 @@
       <span>Zima Connect</span>
     </div>
 
-    <div class="section-label">My devices</div>
     <nav class="devices">
-      {#each peers as p (p.id)}
-        <button class="device" class:active={selected?.id === p.id} onclick={() => (selectedId = p.id)}>
-          <span class="dev-icon"><Icon name={iconFor(p.platform)} size={18} /></span>
-          <span class="dev-text">
-            <span class="dev-name">{p.name}</span>
-            <span class="dev-sub">{p.online ? 'Connected' : 'Offline'}</span>
-          </span>
-          <span class="dot" class:on={p.online}></span>
-        </button>
+      {#each groups as g (g.label)}
+        <div class="section-label">{g.label}</div>
+        {#each g.items as p (p.id)}
+          <button
+            class="device"
+            class:active={view === 'device' && selected?.id === p.id}
+            onclick={() => {
+              selectedId = p.id;
+              view = 'device';
+            }}
+          >
+            <span class="dev-icon"><Icon name={iconFor(p.platform)} size={18} /></span>
+            <span class="dev-text">
+              <span class="dev-name">{p.name}</span>
+              <span class="dev-sub">{p.online ? 'Connected' : 'Offline'}</span>
+            </span>
+            <span class="dot" class:on={p.online}></span>
+          </button>
+        {/each}
       {/each}
-      {#if loaded && peers.length === 0}
+      {#if loaded && contacts.length === 0}
         <p class="empty-side">No devices yet.</p>
       {/if}
     </nav>
 
-    <button class="add" onclick={openPairing}>
+    {#if household}
+      <button class="nav-item" class:active={view === 'household'} onclick={() => (view = 'household')}>
+        <Icon name="users" size={16} /> Household
+      </button>
+    {/if}
+    <button class="add" onclick={() => openDialog()}>
       <Icon name="plus" size={16} /> Add device
     </button>
 
     <div class="me">
-      <div class="me-label">This computer</div>
+      <div class="me-label">This computer{household ? ` · ${household.info.me.name}` : ''}</div>
       <div class="me-name">{identity?.name ?? '…'}</div>
     </div>
   </aside>
@@ -233,16 +299,36 @@
   <main class="main">
     {#if !loaded}
       <div class="center"><div class="spinner"></div></div>
+    {:else if view === 'household' && household}
+      <HouseholdView
+        {household}
+        myDeviceId={identity?.id ?? ''}
+        {say}
+        onchange={refresh}
+        oninvite={(code, label) => {
+          invite = { code, label };
+        }}
+      />
     {:else if !selected}
       <div class="center">
         <div class="hero">
           <div class="hero-icon"><Icon name="pair" size={30} /></div>
-          <h1>Connect your first device</h1>
-          <p>
-            Install Zima Connect on another device, then pair the two with a one-time code.
-            No account or server needed — devices find each other directly.
-          </p>
-          <button class="primary big" onclick={openPairing}>Add device</button>
+          {#if household}
+            <h1>You’re in {household.info.household}</h1>
+            <p>
+              No other devices yet. Add more devices from the Household page, or install Zima Connect on
+              another device and join with a code.
+            </p>
+            <button class="primary big" onclick={() => (view = 'household')}>Open household</button>
+          {:else}
+            <h1>Connect your devices</h1>
+            <p>
+              Join your Zima Connect server once and your devices find each other automatically. No account or
+              domain needed.
+            </p>
+            <button class="primary big" onclick={() => openDialog('server')}>Join server</button>
+            <button class="textbtn" onclick={() => openDialog('show')}>or pair two devices directly</button>
+          {/if}
         </div>
       </div>
     {:else}
@@ -259,26 +345,31 @@
             {/if}
             <span class="sep">·</span>
             {platformLabel(selected.platform)}
+            {#if selected.user_name && !selected.mine}
+              <span class="sep">·</span> {selected.user_name}’s device
+            {/if}
           </div>
         </div>
-        <button class="ghost" onclick={unpair} title="Remove device"><Icon name="trash" size={16} /> Remove</button>
+        {#if selected.direct}
+          <button class="ghost" onclick={unpair} title="Remove device"><Icon name="trash" size={16} /> Remove</button>
+        {/if}
       </header>
 
       <section class="actions">
-        <button class="action" disabled={!selected.online || !!busy} onclick={sendClipboard}>
+        <button class="action" disabled={!can(selected, 'clipboard') || !!busy} title={why(selected, 'clipboard')} onclick={sendClipboard}>
           <span class="a-icon"><Icon name="clipboard" size={22} /></span>
           <span class="a-title">Send clipboard</span>
-          <span class="a-sub">Share what you copied</span>
+          <span class="a-sub">{selected.caps.includes('clipboard') ? 'Share what you copied' : 'Not allowed'}</span>
         </button>
-        <button class="action" disabled={!selected.online || !!busy} onclick={sendFile}>
+        <button class="action" disabled={!can(selected, 'files') || !!busy} title={why(selected, 'files')} onclick={sendFile}>
           <span class="a-icon"><Icon name="file" size={22} /></span>
           <span class="a-title">Send file</span>
-          <span class="a-sub">Choose a file to send</span>
+          <span class="a-sub">{selected.caps.includes('files') ? 'Photos, documents, anything' : 'Not allowed'}</span>
         </button>
-        <button class="action" disabled={!selected.online || !!busy} onclick={ring}>
+        <button class="action" disabled={!can(selected, 'ring') || !!busy} title={why(selected, 'ring')} onclick={ring}>
           <span class="a-icon"><Icon name="bell" size={22} /></span>
           <span class="a-title">Find device</span>
-          <span class="a-sub">Make it ring</span>
+          <span class="a-sub">{selected.caps.includes('ring') ? 'Make it ring' : 'Not allowed'}</span>
         </button>
       </section>
 
@@ -296,7 +387,7 @@
                   <span class="row-sub">{a.detail}</span>
                 </span>
                 {#if a.path}
-                  <button class="link" onclick={() => invoke('reveal_path', { path: a.path })}>
+                  <button class="link" onclick={() => api.reveal(a.path!)}>
                     <Icon name="folder" size={14} /> Show
                   </button>
                 {/if}
@@ -310,21 +401,34 @@
   </main>
 </div>
 
-{#if pairOpen}
-  <div class="overlay" role="presentation" onclick={() => (pairOpen = false)}>
+{#if dlgOpen}
+  <div class="overlay" role="presentation" onclick={() => (dlgOpen = false)}>
     <div class="modal" role="dialog" aria-modal="true" aria-label="Add device" tabindex="-1" onclick={(e) => e.stopPropagation()} onkeydown={() => {}}>
       <div class="modal-head">
         <h3>Add device</h3>
-        <button class="icon-btn" onclick={() => (pairOpen = false)} aria-label="Close"><Icon name="x" size={16} /></button>
+        <button class="icon-btn" onclick={() => (dlgOpen = false)} aria-label="Close"><Icon name="x" size={16} /></button>
       </div>
 
       <div class="segmented">
-        <button class:on={pairTab === 'show'} onclick={() => (pairTab = 'show')}>Show my code</button>
-        <button class:on={pairTab === 'enter'} onclick={() => (pairTab = 'enter')}>Enter a code</button>
+        <button class:on={tab === 'server'} onclick={() => setTab('server')}>Join server</button>
+        <button class:on={tab === 'show'} onclick={() => setTab('show')}>Show code</button>
+        <button class:on={tab === 'enter'} onclick={() => setTab('enter')}>Enter code</button>
       </div>
 
-      {#if pairTab === 'show'}
-        <p class="hint">On the other device choose <b>Enter a code</b> and paste this. It works once and expires in 15 minutes.</p>
+      {#if tab === 'server'}
+        <p class="hint">
+          Open your Zima Connect server’s page (or ask the household owner for an invitation) and paste the code here.
+          After this your devices find each other automatically.
+        </p>
+        <textarea class="code-input" rows="4" placeholder="zch1-…" bind:value={serverCode} spellcheck="false"></textarea>
+        <input class="name-input" placeholder="Your name (if you are the first or a new person)" bind:value={yourName} />
+        <div class="modal-actions">
+          <button class="primary" onclick={submitServer} disabled={!serverCode.trim() || working}>
+            {working ? 'Connecting…' : 'Join'}
+          </button>
+        </div>
+      {:else if tab === 'show'}
+        <p class="hint">Direct pairing without a server: on the other device choose <b>Enter code</b> and paste this. It works once and expires in 15 minutes.</p>
         <div class="code-box">
           {#if codeLoading}
             <div class="spinner small"></div>
@@ -333,26 +437,42 @@
           {/if}
         </div>
         <div class="modal-actions">
-          <button class="primary" onclick={copyCode} disabled={!myCode}>
+          <button class="primary" onclick={() => copy(myCode, 'code')} disabled={!myCode}>
             <Icon name={codeCopied ? 'check' : 'copy'} size={15} />
             {codeCopied ? 'Copied' : 'Copy code'}
           </button>
         </div>
       {:else}
-        <p class="hint">Paste the code shown on the other device.</p>
-        <textarea
-          class="code-input"
-          rows="4"
-          placeholder="zc1-…"
-          bind:value={enteredCode}
-          spellcheck="false"
-        ></textarea>
+        <p class="hint">Direct pairing without a server: paste the code shown on the other device.</p>
+        <textarea class="code-input" rows="4" placeholder="zc1-…" bind:value={enteredCode} spellcheck="false"></textarea>
         <div class="modal-actions">
-          <button class="primary" onclick={submitPair} disabled={!enteredCode.trim() || pairing}>
-            {pairing ? 'Connecting…' : 'Pair'}
+          <button class="primary" onclick={submitPair} disabled={!enteredCode.trim() || working}>
+            {working ? 'Connecting…' : 'Pair'}
           </button>
         </div>
       {/if}
+    </div>
+  </div>
+{/if}
+
+{#if invite}
+  <div class="overlay" role="presentation" onclick={() => (invite = null)}>
+    <div class="modal" role="dialog" aria-modal="true" aria-label="Invitation" tabindex="-1" onclick={(e) => e.stopPropagation()} onkeydown={() => {}}>
+      <div class="modal-head">
+        <h3>{invite.label}</h3>
+        <button class="icon-btn" onclick={() => (invite = null)} aria-label="Close"><Icon name="x" size={16} /></button>
+      </div>
+      <p class="hint">
+        On the new device install Zima Connect, choose <b>Add device → Join server</b> and paste this code.
+        It works once and expires in 24 hours.
+      </p>
+      <div class="code-box"><code>{invite.code}</code></div>
+      <div class="modal-actions">
+        <button class="primary" onclick={() => copy(invite!.code, 'invite')}>
+          <Icon name={inviteCopied ? 'check' : 'copy'} size={15} />
+          {inviteCopied ? 'Copied' : 'Copy code'}
+        </button>
+      </div>
     </div>
   </div>
 {/if}
@@ -903,5 +1023,50 @@
       animation: none !important;
       transition: none !important;
     }
+  }
+
+  .nav-item {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    padding: 9px 12px;
+    margin: 6px 4px 0;
+    border-radius: 10px;
+    font-weight: 550;
+    color: var(--text-2);
+  }
+  .nav-item:hover {
+    background: var(--hover);
+  }
+  .nav-item.active {
+    background: var(--selected);
+    color: var(--accent);
+  }
+  .section-label {
+    padding-top: 10px;
+  }
+  .textbtn {
+    display: block;
+    margin: 14px auto 0;
+    color: var(--accent);
+    font-weight: 550;
+  }
+  .textbtn:hover {
+    text-decoration: underline;
+  }
+  .modal .code-input {
+    user-select: text;
+  }
+  .name-input {
+    width: 100%;
+    margin-top: 10px;
+    font: inherit;
+    padding: 9px 12px;
+    border-radius: 10px;
+    border: 0;
+    background: var(--bg);
+    color: var(--text);
+    box-shadow: inset 0 0 0 1px var(--line);
+    user-select: text;
   }
 </style>

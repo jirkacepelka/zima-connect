@@ -7,6 +7,8 @@ use tauri::{AppHandle, State};
 use tauri_plugin_clipboard_manager::ClipboardExt;
 use tauri_plugin_dialog::DialogExt;
 
+use zima_connect_net::{AdminOp, Contact, HouseholdInfo, Snapshot};
+
 use crate::state::{Activity, SharedState};
 
 #[derive(Serialize)]
@@ -17,12 +19,17 @@ pub struct Identity {
 }
 
 #[derive(Serialize)]
-pub struct PeerView {
-    pub id: String,
-    pub name: String,
-    pub platform: String,
+pub struct ContactView {
+    #[serde(flatten)]
+    pub contact: Contact,
     pub online: bool,
     pub rtt_ms: Option<u64>,
+}
+
+#[derive(Serialize)]
+pub struct HouseholdView {
+    pub info: HouseholdInfo,
+    pub snapshot: Snapshot,
 }
 
 #[tauri::command]
@@ -34,22 +41,44 @@ pub fn get_identity(state: State<'_, SharedState>) -> Identity {
     }
 }
 
-/// Paired devices with live reachability (parallel ping, 3 s budget each).
+/// Everyone this device can talk to, with live reachability (parallel ping, 3 s budget each).
 #[tauri::command]
-pub async fn get_peers(state: State<'_, SharedState>) -> Result<Vec<PeerView>, String> {
-    let peers = state.node.peers();
-    let futs = peers.into_iter().map(|p| {
+pub async fn get_contacts(state: State<'_, SharedState>) -> Result<Vec<ContactView>, String> {
+    let futs = state.node.contacts().into_iter().map(|c| {
         let node = state.node.clone();
         async move {
-            let r = tokio::time::timeout(Duration::from_secs(3), node.ping(&p.id)).await;
+            let r = tokio::time::timeout(Duration::from_secs(3), node.ping(&c.id)).await;
             let rtt = match r {
                 Ok(Ok(d)) => Some(d.as_millis() as u64),
                 _ => None,
             };
-            PeerView { id: p.id, name: p.name, platform: p.platform, online: rtt.is_some(), rtt_ms: rtt }
+            ContactView { contact: c, online: rtt.is_some(), rtt_ms: rtt }
         }
     });
     Ok(join_all(futs).await)
+}
+
+#[tauri::command]
+pub fn get_household(state: State<'_, SharedState>) -> Option<HouseholdView> {
+    Some(HouseholdView { info: state.node.household_info()?, snapshot: state.node.household_snapshot()? })
+}
+
+/// Join the household of the server that showed this code.
+#[tauri::command]
+pub async fn join_household(code: String, user_name: Option<String>, state: State<'_, SharedState>) -> Result<String, String> {
+    let info = state.node.join(code.trim(), user_name).await.map_err(|e| format!("{e:#}"))?;
+    Ok(info.household)
+}
+
+#[tauri::command]
+pub fn leave_household(state: State<'_, SharedState>) {
+    state.node.leave_household();
+}
+
+/// Owner only: change people, devices or policy. Returns a join code for invites.
+#[tauri::command]
+pub async fn household_admin(op: AdminOp, state: State<'_, SharedState>) -> Result<Option<String>, String> {
+    state.node.admin(op).await.map_err(|e| format!("{e:#}"))
 }
 
 #[tauri::command]
@@ -159,5 +188,5 @@ pub fn reveal_path(path: String) {
 }
 
 fn peer_name(state: &SharedState, id: &str) -> String {
-    state.node.peers().into_iter().find(|p| p.id == id).map(|p| p.name).unwrap_or_else(|| "device".into())
+    state.node.contacts().into_iter().find(|c| c.id == id).map(|c| c.name).unwrap_or_else(|| "device".into())
 }

@@ -1,33 +1,17 @@
-version: "3.8"
-
+# Zima Connect household server.
+# Host networking lets devices on your home network find the server directly
+# (mDNS); outside the home they reach it through the relay. No open ports,
+# no domain and no account are needed.
 services:
   zima-connect:
-    build:
-      context: .
-      dockerfile: Dockerfile
     image: ghcr.io/jirkacepelka/zima-connect-server:latest
+    pull_policy: always
     container_name: zima-connect
     restart: unless-stopped
-    ports:
-      - "9120:9120" # Main REST API & WebSocket
-      - "9121:9121" # Web Dashboard
+    network_mode: host
     volumes:
-      # ZimaOS recommended data path: /DATA/AppData/<app>
-      - /DATA/AppData/zima-connect/data:/app/data
+      - /DATA/AppData/zima-connect/data:/data
     environment:
-      - ZC_SERVER_NAME=Zima Connect
-      - ZC_PORT=9120
+      - ZC_HOUSEHOLD=Home
+      - ZC_SERVER_NAME=Zima Connect Hub
       - ZC_DASHBOARD_PORT=9121
-      - ZC_MAX_FILE_SIZE=2147483648 # 2 GB
-      - ZC_MAX_STORAGE=10737418240 # 10 GB
-      - ZC_FILE_TTL=48h
-      - ZC_DATA_DIR=/app/data
-      - ZC_LOG_LEVEL=info
-      - ZC_CORS_ORIGINS=*
-    networks:
-      - zima_default
-
-networks:
-  zima_default:
-    name: zima_default
-    external: true

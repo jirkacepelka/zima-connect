@@ -46,6 +46,7 @@ fn main() {
                 device_name: device_name(),
                 platform: std::env::consts::OS.to_string(),
                 internet: true,
+                hub: None,
             };
             let node = tauri::async_runtime::block_on(Node::start(cfg))
                 .map_err(|e| format!("could not start P2P node: {e:#}"))?;
@@ -92,6 +93,15 @@ fn main() {
                                 .body(format!("{from_name} is looking for this computer"))
                                 .show();
                         }
+                        Event::Notification { from_name, app, title, body, .. } => {
+                            state.log("notification", format!("{app}: {title}"), format!("from {from_name}"), true, None);
+                            let _ = handle.notification().builder().title(format!("{title} · {from_name}")).body(body).show();
+                        }
+                        Event::Joined { household } => {
+                            let name = state.node.household_info().map(|i| i.me.name).unwrap_or_default();
+                            state.log("pair", format!("Joined {household}"), format!("as {name}"), true, None);
+                        }
+                        Event::HouseholdUpdated { .. } => {}
                         Event::Paired { peer } => {
                             state.log("pair", format!("Paired with {}", peer.name), peer.platform, true, None);
                         }
@@ -102,7 +112,11 @@ fn main() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::get_identity,
-            commands::get_peers,
+            commands::get_contacts,
+            commands::get_household,
+            commands::join_household,
+            commands::leave_household,
+            commands::household_admin,
             commands::get_activities,
             commands::create_pairing_code,
             commands::pair_device,
