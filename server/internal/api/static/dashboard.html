@@ -1,0 +1,447 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Zima Connect — Server Dashboard</title>
+  <style>
+    :root {
+      --bg-darkest: #09090b;
+      --bg-darker: #121215;
+      --bg-card: #18181b;
+      --border-color: #27272a;
+      --border-hover: #3f3f46;
+      --text-main: #f4f4f5;
+      --text-muted: #a1a1aa;
+      --accent: #e94560;
+      --accent-hover: #ff5a77;
+      --emerald: #10b981;
+      --emerald-bg: rgba(16, 185, 129, 0.12);
+      --amber: #f59e0b;
+      --amber-bg: rgba(245, 158, 11, 0.12);
+      --blue: #3b82f6;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background-color: var(--bg-darkest);
+      color: var(--text-main);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      line-height: 1.5;
+    }
+
+    header {
+      background-color: var(--bg-darker);
+      border-bottom: 1px solid var(--border-color);
+      padding: 0.75rem 2rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+
+    .brand-logo {
+      width: 28px;
+      height: 28px;
+      background-color: var(--accent);
+      color: #fff;
+      font-weight: 700;
+      font-size: 0.9rem;
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .brand-title {
+      font-weight: 600;
+      font-size: 0.95rem;
+      letter-spacing: 0.02em;
+    }
+
+    .badge {
+      font-family: monospace;
+      font-size: 0.7rem;
+      padding: 0.2rem 0.5rem;
+      border-radius: 4px;
+      background: #27272a;
+      color: var(--text-muted);
+      border: 1px solid #3f3f46;
+    }
+
+    .header-status {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-size: 0.8rem;
+      color: var(--emerald);
+    }
+
+    .pulse-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background-color: var(--emerald);
+      box-shadow: 0 0 8px var(--emerald);
+    }
+
+    main {
+      flex: 1;
+      max-width: 1200px;
+      width: 100%;
+      margin: 0 auto;
+      padding: 2rem;
+    }
+
+    .page-title {
+      margin-bottom: 1.75rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-end;
+    }
+
+    .page-title h1 {
+      font-size: 1.4rem;
+      font-weight: 700;
+      color: #fff;
+    }
+
+    .page-title p {
+      font-size: 0.825rem;
+      color: var(--text-muted);
+      margin-top: 0.2rem;
+    }
+
+    .metrics-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 1rem;
+      margin-bottom: 2rem;
+    }
+
+    .card {
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: 12px;
+      padding: 1.25rem;
+      transition: border-color 0.15s ease;
+    }
+
+    .card:hover {
+      border-color: var(--border-hover);
+    }
+
+    .card-label {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      font-weight: 600;
+    }
+
+    .card-value {
+      font-size: 1.8rem;
+      font-weight: 700;
+      margin: 0.4rem 0 0.2rem 0;
+      color: #fff;
+    }
+
+    .card-sub {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+    }
+
+    .card-sub.emerald { color: var(--emerald); }
+    .card-sub.amber { color: var(--amber); }
+
+    .content-grid {
+      display: grid;
+      grid-template-columns: 2fr 1fr;
+      gap: 1.5rem;
+    }
+
+    @media (max-width: 900px) {
+      .content-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .section-title {
+      font-size: 0.85rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-muted);
+      margin-bottom: 0.75rem;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.8rem;
+    }
+
+    th {
+      text-align: left;
+      padding: 0.75rem 1rem;
+      background: #141416;
+      color: var(--text-muted);
+      font-weight: 500;
+      border-bottom: 1px solid var(--border-color);
+    }
+
+    td {
+      padding: 0.85rem 1rem;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    }
+
+    tr:last-child td {
+      border-bottom: none;
+    }
+
+    tr:hover td {
+      background: rgba(255, 255, 255, 0.02);
+    }
+
+    .status-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      padding: 0.2rem 0.5rem;
+      border-radius: 9999px;
+      font-size: 0.7rem;
+      font-weight: 600;
+    }
+
+    .status-pill.online {
+      background: var(--emerald-bg);
+      color: var(--emerald);
+    }
+
+    .status-pill.offline {
+      background: #27272a;
+      color: var(--text-muted);
+    }
+
+    .status-pill .dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: currentColor;
+    }
+
+    .queue-item {
+      padding: 0.75rem;
+      background: #121215;
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      margin-bottom: 0.5rem;
+    }
+
+    .queue-item-header {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.75rem;
+      font-weight: 600;
+      margin-bottom: 0.25rem;
+    }
+
+    .queue-item-meta {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.7rem;
+      color: var(--text-muted);
+    }
+
+    .progress-bar-bg {
+      width: 100%;
+      height: 6px;
+      background: #27272a;
+      border-radius: 3px;
+      margin-top: 0.5rem;
+      overflow: hidden;
+    }
+
+    .progress-bar-fill {
+      height: 100%;
+      background: var(--accent);
+      border-radius: 3px;
+      transition: width 0.3s ease;
+    }
+  </style>
+</head>
+<body>
+
+  <header>
+    <div class="brand">
+      <div class="brand-logo">Z</div>
+      <div class="brand-title">Zima Connect</div>
+      <div class="badge">ZimaOS Server</div>
+    </div>
+    <div class="header-status">
+      <div class="pulse-dot"></div>
+      <span id="gateway-status">Gateway Active</span>
+      <span class="badge" style="margin-left: 0.5rem;">Port: 9120</span>
+    </div>
+  </header>
+
+  <main>
+    <div class="page-title">
+      <div>
+        <h1>Server Overview</h1>
+        <p>Centrální hub pro zařízení v síti i přes internet (Peer-Server-Peer)</p>
+      </div>
+      <div class="badge" id="refresh-time">Aktualizováno: právě teď</div>
+    </div>
+
+    <!-- Metriky -->
+    <div class="metrics-grid">
+      <div class="card">
+        <div class="card-label">Připojená Zařízení</div>
+        <div class="card-value"><span id="metric-online">0</span> <span style="font-size: 1rem; color: var(--text-muted); font-weight: normal;">/ <span id="metric-total">0</span></span></div>
+        <div class="card-sub emerald">● WebSocket hub připraven</div>
+      </div>
+
+      <div class="card">
+        <div class="card-label">Offline Fronta</div>
+        <div class="card-value"><span id="metric-pending">0</span> <span style="font-size: 0.9rem; color: var(--text-muted); font-weight: normal;">zpráv</span></div>
+        <div class="card-sub amber">Čeká na zapnutí příjemce (TTL: 48h)</div>
+      </div>
+
+      <div class="card">
+        <div class="card-label">Staging Úložiště</div>
+        <div class="card-value" id="metric-storage">0 MB</div>
+        <div class="card-sub"><span id="metric-storage-pct">0</span>% z 10 GB limitu</div>
+        <div class="progress-bar-bg">
+          <div class="progress-bar-fill" id="storage-bar" style="width: 0%;"></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-label">Zabezpečení</div>
+        <div class="card-value" style="color: var(--emerald);">E2E</div>
+        <div class="card-sub">Zero-knowledge šifrování</div>
+      </div>
+    </div>
+
+    <!-- Dva sloupce: Zařízení a Fronta -->
+    <div class="content-grid">
+      <div>
+        <div class="section-title">Spárovaná Zařízení</div>
+        <div class="card" style="padding: 0; overflow: hidden;">
+          <table>
+            <thead>
+              <tr>
+                <th>Název Zařízení</th>
+                <th>Platforma</th>
+                <th>Stav</th>
+                <th>Naposledy aktivní</th>
+              </tr>
+            </thead>
+            <tbody id="devices-tbody">
+              <tr>
+                <td colspan="4" style="text-align: center; color: var(--text-muted); padding: 2rem;">
+                  Zatím žádná spárovaná zařízení. Připojte Android nebo Desktop aplikaci.
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div>
+        <div class="section-title">Offline Fronta (Store & Forward)</div>
+        <div class="card">
+          <div id="queue-container">
+            <p style="font-size: 0.8rem; color: var(--text-muted); text-align: center; padding: 1rem 0;">
+              Fronta je prázdná. Všechny zprávy a soubory byly doručeny.
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <script>
+    function formatBytes(bytes) {
+      if (!bytes || bytes === 0) return '0 B';
+      const k = 1024;
+      const sizes = ['B', 'KB', 'MB', 'GB'];
+      const i = Math.floor(Math.log(bytes) / Math.log(k));
+      return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+    }
+
+    async function loadDashboard() {
+      try {
+        const statsRes = await fetch('/api/v1/admin/stats');
+        if (statsRes.ok) {
+          const stats = await statsRes.json();
+          document.getElementById('metric-online').textContent = stats.online_devices;
+          document.getElementById('metric-total').textContent = stats.total_devices;
+          document.getElementById('metric-pending').textContent = stats.pending_messages;
+
+          if (stats.storage) {
+            document.getElementById('metric-storage').textContent = formatBytes(stats.storage.used_bytes);
+            const pct = stats.storage.used_pct ? stats.storage.used_pct.toFixed(1) : 0;
+            document.getElementById('metric-storage-pct').textContent = pct;
+            document.getElementById('storage-bar').style.width = pct + '%';
+          }
+        }
+
+        const devRes = await fetch('/api/v1/admin/devices');
+        if (devRes.ok) {
+          const devData = await devRes.json();
+          const devices = devData.devices || [];
+          const tbody = document.getElementById('devices-tbody');
+
+          if (devices.length > 0) {
+            tbody.innerHTML = devices.map(d => `
+              <tr>
+                <td>
+                  <strong style="color: #fff;">${escapeHtml(d.name)}</strong>
+                  <div style="font-family: monospace; font-size: 0.7rem; color: var(--text-muted);">${d.id.substring(0, 16)}...</div>
+                </td>
+                <td style="font-family: monospace; text-transform: uppercase;">${escapeHtml(d.platform)}</td>
+                <td>
+                  <span class="status-pill ${d.is_online ? 'online' : 'offline'}">
+                    <span class="dot"></span>
+                    ${d.is_online ? 'Online' : 'Offline'}
+                  </span>
+                </td>
+                <td style="font-family: monospace; font-size: 0.75rem; color: var(--text-muted);">
+                  ${d.last_seen || 'Nikdy'}
+                </td>
+              </tr>
+            `).join('');
+          }
+        }
+
+        document.getElementById('refresh-time').textContent = 'Aktualizováno: ' + new Date().toLocaleTimeString();
+      } catch (err) {
+        console.error('Failed to refresh dashboard data:', err);
+      }
+    }
+
+    function escapeHtml(text) {
+      if (!text) return '';
+      return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    }
+
+    loadDashboard();
+    setInterval(loadDashboard, 5000);
+  </script>
+</body>
+</html>

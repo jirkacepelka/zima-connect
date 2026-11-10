@@ -2,6 +2,7 @@
 package api
 
 import (
+	_ "embed"
 	"fmt"
 	"strings"
 	"time"
@@ -17,6 +18,9 @@ import (
 	"github.com/zima-connect/server/internal/service"
 	"github.com/zima-connect/server/internal/store"
 )
+
+//go:embed static/dashboard.html
+var dashboardHTML string
 
 // ErrorResponse is the standard JSON error envelope.
 type ErrorResponse struct {
@@ -93,7 +97,16 @@ func NewApp(cfg *config.Config, svc *Services, log zerolog.Logger) *fiber.App {
 		},
 	}))
 
-	// --- Health check ---
+	// --- Health check & Root ---
+	app.Get("/", func(c *fiber.Ctx) error {
+		return c.JSON(fiber.Map{
+			"app":       cfg.ServerName,
+			"version":   "1.0.0",
+			"status":    "healthy",
+			"dashboard": fmt.Sprintf("http://%s:%d", c.Hostname(), cfg.DashboardPort),
+		})
+	})
+
 	app.Get("/health", func(c *fiber.Ctx) error {
 		return c.JSON(fiber.Map{
 			"status":  "ok",
@@ -129,6 +142,12 @@ func NewDashboardApp(cfg *config.Config, svc *Services, log zerolog.Logger) *fib
 	})
 
 	app.Use(recover.New())
+
+	// Serve the interactive Web Dashboard UI at "/"
+	app.Get("/", func(c *fiber.Ctx) error {
+		c.Set("Content-Type", "text/html; charset=utf-8")
+		return c.SendString(dashboardHTML)
+	})
 
 	app.Get("/health", func(c *fiber.Ctx) error {
 		return c.JSON(fiber.Map{"status": "ok"})
