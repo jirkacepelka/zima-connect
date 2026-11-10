@@ -1,0 +1,57 @@
+name: zima-connect
+
+services:
+  zima-connect:
+    image: ghcr.io/jirkacepelka/zima-connect-server:latest
+    container_name: zima-connect
+    restart: unless-stopped
+    network_mode: bridge
+    ports:
+      - target: 9120
+        published: "9120"
+        protocol: tcp
+      - target: 9121
+        published: "9121"
+        protocol: tcp
+    volumes:
+      - type: bind
+        source: /DATA/AppData/zima-connect/data
+        target: /app/data
+    environment:
+      - ZC_SERVER_NAME=Zima Connect
+      - ZC_PORT=9120
+      - ZC_DASHBOARD_PORT=9121
+      - ZC_MAX_FILE_SIZE=2147483648 # 2 GB
+      - ZC_MAX_STORAGE=10737418240 # 10 GB
+      - ZC_FILE_TTL=48h
+      - ZC_DATA_DIR=/app/data
+      - ZC_LOG_LEVEL=info
+      - ZC_CORS_ORIGINS=*
+    deploy:
+      resources:
+        reservations:
+          memory: 64M
+
+# ZimaOS / CasaOS App Store Metadata & Web UI Integration
+x-casaos:
+  architectures:
+    - amd64
+    - arm64
+  main: zima-connect
+  icon: https://raw.githubusercontent.com/walkxcode/dashboard-icons/main/png/syncthing.png
+  title:
+    en_us: Zima Connect
+    cs_cz: Zima Connect
+  description:
+    en_us: Self-hosted Peer-to-Server-to-Peer device connectivity hub. Sync clipboard, share files with offline delivery, and mirror notifications across Android, Windows, and Linux.
+    cs_cz: Vlastní centrum propojení zařízení (Peer-to-Server-to-Peer). Synchronizace schránky, posílání souborů i na offline zařízení a zrcadlení notifikací mezi Androidem, Windows a Linuxem.
+  tagline:
+    en_us: KDE Connect alternative with offline queue & remote relay
+    cs_cz: Alternativa ke KDE Connect s offline frontou a relayem
+  category: Utilities
+  developer: Zima Connect Community
+  author: Zima Connect
+  version: "0.1.0"
+  port_map: "9121"
+  scheme: http
+  index: /
