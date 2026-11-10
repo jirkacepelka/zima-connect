@@ -1,65 +1,42 @@
-use serde::{Deserialize, Serialize};
-use std::sync::Arc;
-use tokio::sync::RwLock;
-use zima_connect_core::crypto::keys::DeviceKeyPair;
+use std::sync::{Arc, Mutex};
+use std::time::{SystemTime, UNIX_EPOCH};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DeviceInfo {
-    pub id: String,
-    pub name: String,
-    pub platform: String,
-    pub is_online: bool,
-    pub last_seen: Option<String>,
-    pub battery: Option<u8>,
-}
+use serde::Serialize;
+use zima_connect_net::Node;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ActivityItem {
-    pub id: String,
-    pub timestamp: String,
-    pub icon: String,
+#[derive(Debug, Clone, Serialize)]
+pub struct Activity {
+    pub id: u64,
+    /// Unix time in milliseconds.
+    pub ts: u64,
+    /// "clipboard" | "file" | "ring" | "pair"
+    pub kind: String,
     pub title: String,
-    pub description: String,
-    pub status: String, // "success", "pending", "failed"
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ConnectionStatus {
-    pub connected: bool,
-    pub server_url: String,
-    pub server_name: String,
-    pub active_devices: usize,
-    pub tx_bytes: u64,
-    pub rx_bytes: u64,
+    pub detail: String,
+    pub ok: bool,
+    /// Local path (received files) so the UI can reveal it.
+    pub path: Option<String>,
 }
 
 pub struct AppState {
-    pub keypair: DeviceKeyPair,
-    pub server_url: RwLock<String>,
-    pub auth_token: RwLock<Option<String>>,
-    pub paired_devices: RwLock<Vec<DeviceInfo>>,
-    pub activities: RwLock<Vec<ActivityItem>>,
-    pub connection_status: RwLock<ConnectionStatus>,
+    pub node: Node,
+    pub activities: Mutex<Vec<Activity>>,
+    next_id: Mutex<u64>,
 }
 
 impl AppState {
-    pub fn new() -> Self {
-        let keypair = DeviceKeyPair::generate();
-        Self {
-            keypair,
-            server_url: RwLock::new("http://localhost:9120".to_string()),
-            auth_token: RwLock::new(None),
-            paired_devices: RwLock::new(Vec::new()),
-            activities: RwLock::new(Vec::new()),
-            connection_status: RwLock::new(ConnectionStatus {
-                connected: false,
-                server_url: "http://localhost:9120".to_string(),
-                server_name: "ZimaOS Hub".to_string(),
-                active_devices: 0,
-                tx_bytes: 0,
-                rx_bytes: 0,
-            }),
-        }
+    pub fn new(node: Node) -> Self {
+        Self { node, activities: Mutex::new(Vec::new()), next_id: Mutex::new(1) }
+    }
+
+    pub fn log(&self, kind: &str, title: impl Into<String>, detail: impl Into<String>, ok: bool, path: Option<String>) {
+        let mut idg = self.next_id.lock().unwrap();
+        let id = *idg;
+        *idg += 1;
+        let ts = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0);
+        let mut a = self.activities.lock().unwrap();
+        a.insert(0, Activity { id, ts, kind: kind.into(), title: title.into(), detail: detail.into(), ok, path });
+        a.truncate(100);
     }
 }
 

@@ -1,127 +1,163 @@
-use crate::state::{ActivityItem, ConnectionStatus, DeviceInfo, SharedState};
-use tauri::State;
-use uuid::Uuid;
+use std::path::PathBuf;
+use std::time::Duration;
 
-#[tauri::command]
-pub async fn get_connection_status(state: State<'_, SharedState>) -> Result<ConnectionStatus, String> {
-    let status = state.connection_status.read().await;
-    Ok(status.clone())
+use futures_util::future::join_all;
+use serde::Serialize;
+use tauri::{AppHandle, State};
+use tauri_plugin_clipboard_manager::ClipboardExt;
+use tauri_plugin_dialog::DialogExt;
+
+use crate::state::{Activity, SharedState};
+
+#[derive(Serialize)]
+pub struct Identity {
+    pub id: String,
+    pub name: String,
+    pub platform: String,
+}
+
+#[derive(Serialize)]
+pub struct PeerView {
+    pub id: String,
+    pub name: String,
+    pub platform: String,
+    pub online: bool,
+    pub rtt_ms: Option<u64>,
 }
 
 #[tauri::command]
-pub async fn get_devices(state: State<'_, SharedState>) -> Result<Vec<DeviceInfo>, String> {
-    let devices = state.paired_devices.read().await;
-    if devices.is_empty() {
-        // Mock default preview devices for development/demo
-        return Ok(vec![
-            DeviceInfo {
-                id: "dev-pixel8-1234".to_string(),
-                name: "Pixel 8 Pro".to_string(),
-                platform: "android".to_string(),
-                is_online: true,
-                last_seen: Some("Just now".to_string()),
-                battery: Some(84),
-            },
-            DeviceInfo {
-                id: "dev-thinkpad-5678".to_string(),
-                name: "ThinkPad X1".to_string(),
-                platform: "linux".to_string(),
-                is_online: false,
-                last_seen: Some("2 hours ago".to_string()),
-                battery: Some(62),
-            },
-        ]);
+pub fn get_identity(state: State<'_, SharedState>) -> Identity {
+    Identity {
+        id: state.node.id().to_string(),
+        name: state.node.device_name().to_string(),
+        platform: std::env::consts::OS.to_string(),
     }
-    Ok(devices.clone())
+}
+
+/// Paired devices with live reachability (parallel ping, 3 s budget each).
+#[tauri::command]
+pub async fn get_peers(state: State<'_, SharedState>) -> Result<Vec<PeerView>, String> {
+    let peers = state.node.peers();
+    let futs = peers.into_iter().map(|p| {
+        let node = state.node.clone();
+        async move {
+            let r = tokio::time::timeout(Duration::from_secs(3), node.ping(&p.id)).await;
+            let rtt = match r {
+                Ok(Ok(d)) => Some(d.as_millis() as u64),
+                _ => None,
+            };
+            PeerView { id: p.id, name: p.name, platform: p.platform, online: rtt.is_some(), rtt_ms: rtt }
+        }
+    });
+    Ok(join_all(futs).await)
 }
 
 #[tauri::command]
-pub async fn get_activities(state: State<'_, SharedState>) -> Result<Vec<ActivityItem>, String> {
-    let activities = state.activities.read().await;
-    if activities.is_empty() {
-        return Ok(vec![
-            ActivityItem {
-                id: Uuid::now_v7().to_string(),
-                timestamp: "2 min ago".to_string(),
-                icon: "file".to_string(),
-                title: "File sent: financial_report_q3.pdf".to_string(),
-                description: "Delivered to Pixel 8 Pro (14.2 MB)".to_string(),
-                status: "success".to_string(),
-            },
-            ActivityItem {
-                id: Uuid::now_v7().to_string(),
-                timestamp: "15 min ago".to_string(),
-                icon: "clipboard".to_string(),
-                title: "Clipboard synced".to_string(),
-                description: "Copied 240 chars from Pixel 8 Pro".to_string(),
-                status: "success".to_string(),
-            },
-            ActivityItem {
-                id: Uuid::now_v7().to_string(),
-                timestamp: "1 hour ago".to_string(),
-                icon: "bell".to_string(),
-                title: "Notification mirrored".to_string(),
-                description: "Signal: New message from Sarah".to_string(),
-                status: "success".to_string(),
-            },
-        ]);
-    }
-    Ok(activities.clone())
+pub fn get_activities(state: State<'_, SharedState>) -> Vec<Activity> {
+    state.activities.lock().unwrap().clone()
 }
 
+/// New one-time pairing code to show on this device.
+#[tauri::command]
+pub async fn create_pairing_code(state: State<'_, SharedState>) -> Result<String, String> {
+    state.node.pairing_ticket().await.map_err(|e| format!("{e:#}"))
+}
+
+/// Pair with the device that showed `code`.
+#[tauri::command]
+pub async fn pair_device(code: String, state: State<'_, SharedState>) -> Result<String, String> {
+    match state.node.pair(&code).await {
+        // The "Paired" activity entry is logged by the node event handler.
+        Ok(p) => Ok(p.name),
+        Err(e) => Err(format!("{e:#}")),
+    }
+}
+
+#[tauri::command]
+pub fn unpair_device(id: String, state: State<'_, SharedState>) -> Result<(), String> {
+    state.node.unpair(&id).map_err(|e| format!("{e:#}"))
+}
+
+/// Send whatever is on this computer's clipboard to a peer.
 #[tauri::command]
 pub async fn send_clipboard(
-    target_device_id: String,
-    content: String,
+    peer_id: String,
+    app: AppHandle,
     state: State<'_, SharedState>,
-) -> Result<String, String> {
-    let mut activities = state.activities.write().await;
-    activities.insert(
-        0,
-        ActivityItem {
-            id: Uuid::now_v7().to_string(),
-            timestamp: "Just now".to_string(),
-            icon: "clipboard".to_string(),
-            title: "Clipboard sent".to_string(),
-            description: format!("Sent to device {} ({} chars)", target_device_id, content.len()),
-            status: "success".to_string(),
-        },
-    );
-    Ok("Clipboard synchronized".to_string())
+) -> Result<(), String> {
+    let text = app.clipboard().read_text().map_err(|e| e.to_string())?;
+    if text.is_empty() {
+        return Err("Clipboard is empty".into());
+    }
+    let name = peer_name(&state, &peer_id);
+    let n = text.chars().count();
+    match state.node.send_clipboard(&peer_id, text).await {
+        Ok(()) => {
+            state.log("clipboard", "Clipboard sent", format!("{n} characters to {name}"), true, None);
+            Ok(())
+        }
+        Err(e) => {
+            state.log("clipboard", "Clipboard not sent", format!("{name}: {e:#}"), false, None);
+            Err(format!("{e:#}"))
+        }
+    }
 }
 
+/// Let the user pick a file and send it to a peer. Returns false if cancelled.
 #[tauri::command]
 pub async fn send_file(
-    target_device_id: String,
-    file_path: String,
+    peer_id: String,
+    app: AppHandle,
     state: State<'_, SharedState>,
-) -> Result<String, String> {
-    let mut activities = state.activities.write().await;
-    activities.insert(
-        0,
-        ActivityItem {
-            id: Uuid::now_v7().to_string(),
-            timestamp: "Just now".to_string(),
-            icon: "file".to_string(),
-            title: format!("File offered: {}", file_path),
-            description: format!("Target: {}", target_device_id),
-            status: "pending".to_string(),
-        },
-    );
-    Ok("File queued for transmission".to_string())
-}
-
-#[tauri::command]
-pub async fn pair_device(code: String, state: State<'_, SharedState>) -> Result<bool, String> {
-    if code.len() != 6 {
-        return Err("Pairing PIN must be 6 digits".to_string());
+) -> Result<bool, String> {
+    let picked = tokio::task::spawn_blocking(move || app.dialog().file().blocking_pick_file())
+        .await
+        .map_err(|e| e.to_string())?;
+    let Some(fp) = picked else { return Ok(false) };
+    let path: PathBuf = fp.into_path().map_err(|e| e.to_string())?;
+    let fname = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let name = peer_name(&state, &peer_id);
+    match state.node.send_file(&peer_id, &path).await {
+        Ok(()) => {
+            state.log("file", format!("Sent {fname}"), format!("to {name}"), true, None);
+            Ok(true)
+        }
+        Err(e) => {
+            state.log("file", format!("Could not send {fname}"), format!("{name}: {e:#}"), false, None);
+            Err(format!("{e:#}"))
+        }
     }
-    let mut status = state.connection_status.write().await;
-    status.connected = true;
-    Ok(true)
 }
 
 #[tauri::command]
-pub async fn ring_device(target_device_id: String) -> Result<String, String> {
-    Ok(format!("Ring command sent to device {}", target_device_id))
+pub async fn ring_device(peer_id: String, state: State<'_, SharedState>) -> Result<(), String> {
+    let name = peer_name(&state, &peer_id);
+    match state.node.ring(&peer_id).await {
+        Ok(()) => {
+            state.log("ring", "Ringing device", name, true, None);
+            Ok(())
+        }
+        Err(e) => {
+            state.log("ring", "Could not reach device", format!("{name}: {e:#}"), false, None);
+            Err(format!("{e:#}"))
+        }
+    }
+}
+
+/// Reveal a received file in the system file manager.
+#[tauri::command]
+pub fn reveal_path(path: String) {
+    #[cfg(target_os = "windows")]
+    let _ = std::process::Command::new("explorer").arg(format!("/select,{path}")).spawn();
+    #[cfg(target_os = "macos")]
+    let _ = std::process::Command::new("open").args(["-R", &path]).spawn();
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        let dir = std::path::Path::new(&path).parent().map(|p| p.to_path_buf()).unwrap_or_default();
+        let _ = std::process::Command::new("xdg-open").arg(dir).spawn();
+    }
+}
+
+fn peer_name(state: &SharedState, id: &str) -> String {
+    state.node.peers().into_iter().find(|p| p.id == id).map(|p| p.name).unwrap_or_else(|| "device".into())
 }

@@ -1,0 +1,18 @@
+[package]
+name = "zima-connect-net"
+description = "Serverless P2P transport for Zima Connect (iroh: LAN mDNS, hole punching, relay fallback)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+iroh = "1.4.1"
+iroh-mdns-address-lookup = "0.6.1"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "fs", "io-util", "sync", "time"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+anyhow = "1"
+base64 = "0.22"
+rand = "0.8"
+tracing = "0.1"

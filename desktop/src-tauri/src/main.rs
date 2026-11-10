@@ -5,28 +5,112 @@ mod commands;
 mod state;
 
 use std::sync::Arc;
+
+use tauri::Manager;
+use tauri_plugin_clipboard_manager::ClipboardExt;
+use tauri_plugin_notification::NotificationExt;
+use zima_connect_net::{Event, Node, NodeConfig};
+
 use state::AppState;
 
-fn main() {
-    let state = Arc::new(AppState::new());
+fn device_name() -> String {
+    std::env::var("COMPUTERNAME")
+        .or_else(|_| std::env::var("HOSTNAME"))
+        .or_else(|_| std::env::var("HOST"))
+        .unwrap_or_else(|_| "This computer".to_string())
+}
 
+fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_clipboard_manager::init())
+        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_autostart::init(
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             Some(vec!["--minimized"]),
         ))
-        .plugin(tauri_plugin_shell::init())
-        .manage(state)
+        .setup(|app| {
+            // ZC_DATA_DIR lets you run several instances on one machine (testing).
+            let data_dir = match std::env::var_os("ZC_DATA_DIR") {
+                Some(d) => std::path::PathBuf::from(d),
+                None => app.path().app_data_dir()?,
+            };
+            let download_dir = app
+                .path()
+                .download_dir()
+                .unwrap_or_else(|_| data_dir.clone())
+                .join("Zima Connect");
+            let cfg = NodeConfig {
+                data_dir,
+                download_dir,
+                device_name: device_name(),
+                platform: std::env::consts::OS.to_string(),
+                internet: true,
+            };
+            let node = tauri::async_runtime::block_on(Node::start(cfg))
+                .map_err(|e| format!("could not start P2P node: {e:#}"))?;
+            let state = Arc::new(AppState::new(node.clone()));
+            app.manage(state.clone());
+
+            // Turn incoming P2P events into clipboard writes, notifications and activity entries.
+            let handle = app.handle().clone();
+            let mut rx = node.subscribe();
+            tauri::async_runtime::spawn(async move {
+                while let Ok(ev) = rx.recv().await {
+                    match ev {
+                        Event::Clipboard { from_name, text, .. } => {
+                            let _ = handle.clipboard().write_text(text.clone());
+                            state.log(
+                                "clipboard",
+                                "Clipboard received",
+                                format!("{} characters from {from_name}", text.chars().count()),
+                                true,
+                                None,
+                            );
+                        }
+                        Event::FileReceived { from_name, name, path, size, .. } => {
+                            state.log(
+                                "file",
+                                format!("Received {name}"),
+                                format!("from {from_name} ({} KB)", size / 1024),
+                                true,
+                                Some(path),
+                            );
+                            let _ = handle
+                                .notification()
+                                .builder()
+                                .title("File received")
+                                .body(format!("{name} from {from_name}"))
+                                .show();
+                        }
+                        Event::Ring { from_name, .. } => {
+                            state.log("ring", "Found by device", from_name.clone(), true, None);
+                            let _ = handle
+                                .notification()
+                                .builder()
+                                .title("Zima Connect")
+                                .body(format!("{from_name} is looking for this computer"))
+                                .show();
+                        }
+                        Event::Paired { peer } => {
+                            state.log("pair", format!("Paired with {}", peer.name), peer.platform, true, None);
+                        }
+                    }
+                }
+            });
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
-            commands::get_connection_status,
-            commands::get_devices,
+            commands::get_identity,
+            commands::get_peers,
             commands::get_activities,
+            commands::create_pairing_code,
+            commands::pair_device,
+            commands::unpair_device,
             commands::send_clipboard,
             commands::send_file,
-            commands::pair_device,
-            commands::ring_device
+            commands::ring_device,
+            commands::reveal_path,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Zima Connect application");
