@@ -300,6 +300,28 @@ impl HubCore {
 
     /// Apply an admin operation (authorisation is checked by the caller).
     pub fn apply(&self, op: &AdminOp) -> Result<Outcome> {
+        self.apply_with(op, false)
+    }
+
+    /// Same, for the server administrator (dashboard): safety guards for owner devices are lifted,
+    /// e.g. to remove a lost owner phone.
+    pub fn apply_as_admin(&self, op: &AdminOp) -> Result<Outcome> {
+        self.apply_with(op, true)
+    }
+
+    /// A device removes itself.
+    pub fn leave(&self, device_id: &str) -> Result<()> {
+        let mut d = self.data.lock().unwrap();
+        let before = d.devices.len();
+        d.devices.retain(|x| x.id != device_id);
+        if d.devices.len() != before {
+            d.version += 1;
+            self.save(&d)?;
+        }
+        Ok(())
+    }
+
+    fn apply_with(&self, op: &AdminOp, admin: bool) -> Result<Outcome> {
         let mut d = self.data.lock().unwrap();
         let outcome = match op {
             AdminOp::CreateInvite {
@@ -368,7 +390,7 @@ impl HubCore {
                 };
                 let owner_devices = d.devices.iter().filter(|x| x.user_id == uid).count();
                 let is_owner = d.users.iter().any(|u| u.id == uid && u.role == Role::Owner);
-                if is_owner && owner_devices == 1 {
+                if is_owner && owner_devices == 1 && !admin {
                     bail!("cannot remove the last device of the owner");
                 }
                 d.devices.retain(|x| &x.id != id);
@@ -385,6 +407,11 @@ impl HubCore {
                 d.devices.retain(|x| &x.user_id != id);
                 d.rules.retain(|r| &r.from_user != id && &r.to_user != id);
                 Outcome::Changed
+            }
+            AdminOp::RevokeInvite { secret } => {
+                d.invites.remove(secret);
+                self.save(&d)?;
+                return Ok(Outcome::Changed);
             }
             AdminOp::RenameUser { id, name } => {
                 let n = name.trim();

@@ -45,6 +45,8 @@ pub enum Request {
     Admin {
         op: AdminOp,
     },
+    /// This device leaves the household (removes itself from the server).
+    Leave,
     // -- offline queue (hub) --
     /// Leave an item for an offline device. Files are followed by raw bytes.
     Deposit {

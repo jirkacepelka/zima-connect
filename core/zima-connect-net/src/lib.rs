@@ -129,6 +129,7 @@ pub struct HouseholdInfo {
 
 #[derive(Debug, Clone, Serialize)]
 pub struct InviteOut {
+    pub secret: String,
     pub label: String,
     pub code: String,
     pub expires: u64,
@@ -331,6 +332,22 @@ impl Node {
     }
 
     /// Leave the household (this device only).
+    /// Leave the household: tell the server (best effort) and forget it locally.
+    pub async fn leave_household_async(&self) {
+        let hub = self
+            .inner
+            .membership
+            .lock()
+            .unwrap()
+            .as_ref()
+            .map(|m| m.hub.clone());
+        if let Some(hub) = hub {
+            let _ = self.request(hub, Request::Leave, None).await;
+        }
+        self.leave_household();
+    }
+
+    /// Forget the household on this device only (does not tell the server).
     pub fn leave_household(&self) {
         *self.inner.membership.lock().unwrap() = None;
         let _ = std::fs::remove_file(self.inner.cfg.data_dir.join("household.json"));
@@ -403,7 +420,7 @@ impl Node {
     /// Returns a join code when the operation was `CreateInvite`.
     pub async fn admin(&self, op: AdminOp) -> Result<Option<String>> {
         if let Some(hub) = &self.inner.hub {
-            return self.hub_admin_local(hub, &op).await;
+            return self.hub_admin_local(hub, &op, false).await;
         }
         let hub = {
             let g = self.inner.membership.lock().unwrap();
@@ -438,11 +455,28 @@ impl Node {
                 .into_iter()
                 .map(|i| InviteOut {
                     code: self.wrap_join_code(&i.secret),
+                    secret: i.secret.clone(),
                     label: i.label,
                     expires: i.expires,
                 })
                 .collect(),
         })
+    }
+
+    /// Server dashboard: is this household device reachable right now? (round-trip ms)
+    pub async fn hub_probe(&self, device_id: &str) -> Option<u64> {
+        let id: EndpointId = device_id.parse().ok()?;
+        let start = Instant::now();
+        // Any reply (even "not paired", the hub is no member) proves the device is online.
+        self.request(EndpointAddr::from(id), Request::Ping, None)
+            .await
+            .ok()
+            .map(|_| start.elapsed().as_millis() as u64)
+    }
+
+    /// Server dashboard: (items waiting, bytes of files waiting) in the offline queue.
+    pub fn hub_mailbox_stats(&self) -> Option<(usize, u64)> {
+        self.inner.mailbox.as_ref().map(|m| m.stats())
     }
 
     /// Server dashboard: apply an operation directly.
@@ -452,11 +486,21 @@ impl Node {
             .hub
             .as_ref()
             .ok_or_else(|| anyhow!("not a household server"))?;
-        self.hub_admin_local(hub, &op).await
+        self.hub_admin_local(hub, &op, true).await
     }
 
-    async fn hub_admin_local(&self, hub: &HubCore, op: &AdminOp) -> Result<Option<String>> {
-        match hub.apply(op)? {
+    async fn hub_admin_local(
+        &self,
+        hub: &HubCore,
+        op: &AdminOp,
+        admin: bool,
+    ) -> Result<Option<String>> {
+        let outcome = if admin {
+            hub.apply_as_admin(op)?
+        } else {
+            hub.apply(op)?
+        };
+        match outcome {
             Outcome::Invite(secret) => Ok(Some(self.wrap_join_code(&secret))),
             Outcome::Changed => Ok(None),
         }
@@ -987,9 +1031,10 @@ impl Node {
                 stream_after = p;
                 r
             }
-            Request::Join { .. } | Request::Sync { .. } | Request::Admin { .. } => {
-                self.handle_hub_request(&req, &remote)
-            }
+            Request::Join { .. }
+            | Request::Leave
+            | Request::Sync { .. }
+            | Request::Admin { .. } => self.handle_hub_request(&req, &remote),
             Request::Pair {
                 secret,
                 name,
@@ -1115,6 +1160,10 @@ impl Node {
                 user_name,
             } => match hub.join(code, remote, name, platform, user_name.as_deref()) {
                 Ok(s) => Response::Joined { snapshot: s },
+                Err(e) => err(e),
+            },
+            Request::Leave => match hub.leave(remote) {
+                Ok(()) => Response::Ok,
                 Err(e) => err(e),
             },
             Request::Sync { have } => match hub.sync(remote, *have) {

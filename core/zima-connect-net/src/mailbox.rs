@@ -119,6 +119,22 @@ impl Mailbox {
         }
     }
 
+    /// (items waiting, bytes of files waiting) over all devices.
+    pub fn stats(&self) -> (usize, u64) {
+        let all = self.all();
+        let bytes = all
+            .iter()
+            .map(|e| {
+                if let Item::File { size, .. } = e.item {
+                    size
+                } else {
+                    0
+                }
+            })
+            .sum();
+        (all.len(), bytes)
+    }
+
     pub fn for_device(&self, to: &str) -> Vec<Entry> {
         self.prune();
         self.all().into_iter().filter(|e| e.to == to).collect()

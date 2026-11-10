@@ -163,6 +163,10 @@ pub enum AdminOp {
     RemoveUser {
         id: String,
     },
+    /// Cancel an invitation that was not used yet.
+    RevokeInvite {
+        secret: String,
+    },
     RenameUser {
         id: String,
         name: String,

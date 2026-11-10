@@ -118,7 +118,7 @@ async fn dispatch(method: &str, args_json: &str) -> anyhow::Result<Value> {
             json!(info.household)
         }
         "leave" => {
-            n.leave_household();
+            n.leave_household_async().await;
             Value::Null
         }
         "admin" => {

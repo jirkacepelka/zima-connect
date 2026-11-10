@@ -71,8 +71,10 @@ pub async fn join_household(code: String, user_name: Option<String>, state: Stat
 }
 
 #[tauri::command]
-pub fn leave_household(state: State<'_, SharedState>) {
-    state.node.leave_household();
+pub async fn leave_household(state: State<'_, SharedState>) -> Result<(), String> {
+    // Tells the server too, so this device disappears from the household list.
+    state.node.leave_household_async().await;
+    Ok(())
 }
 
 /// Owner only: change people, devices or policy. Returns a join code for invites.

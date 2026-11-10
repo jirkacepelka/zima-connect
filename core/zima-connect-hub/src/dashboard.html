@@ -6,81 +6,256 @@
 <meta name="color-scheme" content="light dark">
 <title>Zima Connect</title>
 <style>
-  :root{color-scheme:light dark;--bg:#f5f5f7;--surface:#fff;--text:#1d1d1f;--text-2:#6e6e73;--text-3:#a1a1a6;--line:rgba(0,0,0,.08);--accent:#0a84ff;--accent-soft:rgba(10,132,255,.1);--ok:#30a46c;--shadow:0 1px 2px rgba(0,0,0,.04),0 4px 16px rgba(0,0,0,.05)}
-  @media(prefers-color-scheme:dark){:root{--bg:#1c1c1e;--surface:#2c2c2e;--text:#f5f5f7;--text-2:#a1a1a6;--text-3:#6e6e73;--line:rgba(255,255,255,.09);--accent-soft:rgba(10,132,255,.18);--ok:#3dd68c;--shadow:0 1px 2px rgba(0,0,0,.3),0 4px 16px rgba(0,0,0,.25)}}
+  :root{color-scheme:light dark;--bg:#f5f5f7;--surface:#fff;--surface-2:#fafafc;--text:#1d1d1f;--text-2:#6e6e73;--text-3:#a1a1a6;--line:rgba(0,0,0,.08);--hover:rgba(0,0,0,.045);--accent:#0a84ff;--accent-soft:rgba(10,132,255,.1);--ok:#30a46c;--warn:#e5484d;--shadow:0 1px 2px rgba(0,0,0,.04),0 4px 16px rgba(0,0,0,.05);--shadow-lg:0 10px 40px rgba(0,0,0,.2);--overlay:rgba(0,0,0,.35)}
+  @media(prefers-color-scheme:dark){:root{--bg:#1c1c1e;--surface:#2c2c2e;--surface-2:#323235;--text:#f5f5f7;--text-2:#a1a1a6;--text-3:#6e6e73;--line:rgba(255,255,255,.09);--hover:rgba(255,255,255,.06);--accent-soft:rgba(10,132,255,.18);--ok:#3dd68c;--warn:#ff6369;--shadow:0 1px 2px rgba(0,0,0,.3),0 4px 16px rgba(0,0,0,.25);--shadow-lg:0 10px 40px rgba(0,0,0,.55);--overlay:rgba(0,0,0,.55)}}
   *{box-sizing:border-box}
   body{margin:0;background:var(--bg);color:var(--text);font:14px/1.45 'Segoe UI Variable Text','Segoe UI',system-ui,-apple-system,'Helvetica Neue',Arial,sans-serif;-webkit-font-smoothing:antialiased}
-  main{max-width:760px;margin:0 auto;padding:40px 20px 60px}
-  header{display:flex;align-items:center;gap:12px;margin-bottom:28px}
-  .logo{width:36px;height:36px;border-radius:10px;background:var(--accent);color:#fff;display:grid;place-items:center}
+  main{max-width:880px;margin:0 auto;padding:32px 20px 70px}
+  header.top{display:flex;align-items:center;gap:12px;margin-bottom:26px}
+  .logo{width:38px;height:38px;border-radius:11px;background:var(--accent);color:#fff;display:grid;place-items:center;flex-shrink:0}
   h1{font-size:22px;margin:0;font-weight:650;letter-spacing:-.01em}
+  h2{font-size:15px;font-weight:650;margin:32px 0 10px;display:flex;align-items:center;gap:10px}
   .sub{color:var(--text-2);font-size:13px}
-  h2{font-size:15px;font-weight:650;margin:30px 0 10px}
+  .grow{flex:1;min-width:0}
   .card{background:var(--surface);border-radius:14px;box-shadow:var(--shadow),0 0 0 1px var(--line)}
   .pad{padding:18px 20px}
-  .row{display:flex;align-items:center;gap:12px;padding:12px 18px}
-  .row+.row{border-top:1px solid var(--line)}
-  .avatar{width:34px;height:34px;border-radius:50%;background:var(--accent-soft);color:var(--accent);display:grid;place-items:center;font-weight:650}
-  .grow{flex:1;min-width:0}
-  .name{font-weight:600}
   .muted{color:var(--text-2);font-size:12.5px}
+  .name{font-weight:600}
+  button{font:inherit;border:0;cursor:pointer;color:inherit;background:none}
+  button:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+  .btn{background:var(--accent);color:#fff;font-weight:600;border-radius:9px;padding:8px 16px}
+  .btn:disabled{opacity:.45;cursor:not-allowed}
+  .btn.ghost{background:none;color:var(--text-2);font-weight:550}
+  .btn.ghost:hover{background:var(--hover)}
+  .link{color:var(--accent);font-weight:550;font-size:12.5px;padding:4px 8px;border-radius:7px}
+  .link:hover{background:var(--accent-soft)}
+  .link.danger{color:var(--text-3)}
+  .link.danger:hover{color:var(--warn);background:var(--hover)}
+  input[type=text],input[type=password]{font:inherit;padding:9px 12px;border-radius:10px;border:0;background:var(--surface);color:var(--text);box-shadow:0 0 0 1px var(--line);width:100%}
+  .row{display:flex;align-items:center;gap:12px}
+  .person{padding:14px 18px}
+  .person+.person{border-top:1px solid var(--line)}
+  .avatar{width:34px;height:34px;border-radius:50%;background:var(--accent-soft);color:var(--accent);display:grid;place-items:center;font-weight:650;flex-shrink:0}
   .pill{font-size:11.5px;padding:2px 9px;border-radius:99px;background:var(--accent-soft);color:var(--accent);font-weight:600}
-  code{display:block;font:11.5px ui-monospace,'Cascadia Code',Menlo,Consolas,monospace;word-break:break-all;background:var(--bg);border-radius:10px;padding:12px 14px;box-shadow:inset 0 0 0 1px var(--line);user-select:all;margin:10px 0}
-  button{font:inherit;border:0;background:var(--accent);color:#fff;font-weight:600;border-radius:9px;padding:8px 16px;cursor:pointer}
-  .empty{padding:22px;text-align:center;color:var(--text-2)}
-  .id{font:11.5px ui-monospace,Consolas,monospace;color:var(--text-3);word-break:break-all}
+  .devs{margin:8px 0 0 46px;display:flex;flex-direction:column;gap:2px}
+  .dev{display:flex;align-items:center;gap:9px;color:var(--text-2);font-size:13px;padding:3px 0}
+  .dot{width:8px;height:8px;border-radius:50%;background:var(--text-3);flex-shrink:0}
+  .dot.on{background:var(--ok)}
+  .add{display:flex;gap:10px;margin-top:12px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(270px,1fr));gap:14px}
+  .pol{padding:16px 18px 8px}
+  .pol-title{font-size:15px;font-weight:600}
+  .arrow{color:var(--text-3);margin:0 4px}
+  .sw{display:flex;align-items:center;justify-content:space-between;padding:9px 0;border-top:1px solid var(--line);position:relative;cursor:pointer}
+  .sw.off{opacity:.55;cursor:default}
+  .sw input{position:absolute;inset:0;width:100%;height:100%;opacity:0;margin:0;cursor:inherit}
+  .track{width:40px;height:24px;border-radius:99px;background:var(--text-3);position:relative;transition:background .15s;flex-shrink:0}
+  .knob{position:absolute;top:2px;left:2px;width:20px;height:20px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.3);transition:transform .15s}
+  .sw input:checked~.track{background:var(--ok)}
+  .sw input:checked~.track .knob{transform:translateX(16px)}
+  .inv{display:flex;align-items:center;gap:12px;padding:12px 18px}
+  .inv+.inv{border-top:1px solid var(--line)}
+  .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:14px}
+  .stat{padding:14px 18px}
+  .stat b{display:block;font-size:20px;font-weight:650}
+  .id{font:11.5px ui-monospace,'Cascadia Code',Menlo,Consolas,monospace;color:var(--text-3);word-break:break-all;user-select:all}
+  code.block{display:block;font:11.5px ui-monospace,'Cascadia Code',Menlo,Consolas,monospace;word-break:break-all;background:var(--bg);border-radius:10px;padding:12px 14px;box-shadow:inset 0 0 0 1px var(--line);user-select:all;margin:10px 0;max-height:130px;overflow:auto}
+  .center{min-height:100vh;display:grid;place-items:center;padding:20px}
+  .login{width:380px;max-width:100%;padding:28px}
+  .login h1{margin:14px 0 4px}
+  .login .field{margin-top:14px}
+  .err{color:var(--warn);font-size:13px;margin-top:10px;min-height:18px}
+  .overlay{position:fixed;inset:0;background:var(--overlay);display:grid;place-items:center;padding:20px;z-index:10}
+  .modal{width:460px;max-width:100%;background:var(--surface);border-radius:18px;box-shadow:var(--shadow-lg),0 0 0 1px var(--line);padding:22px 24px 24px;max-height:92vh;overflow:auto}
+  .modal h3{margin:0 0 6px;font-size:18px}
+  .qr{width:240px;height:240px;margin:12px auto;border-radius:12px;overflow:hidden;background:#fff}
+  .qr svg{width:100%;height:100%;display:block}
+  .toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%);background:var(--text);color:var(--bg);padding:10px 18px;border-radius:12px;font-weight:550;box-shadow:var(--shadow-lg);z-index:20}
+  .toast.error{background:var(--warn);color:#fff}
+  .notice{background:var(--accent-soft);color:var(--text);border-radius:14px;padding:16px 18px;margin-bottom:6px}
+  [hidden]{display:none!important}
 </style>
 </head>
 <body>
-<main>
-  <header>
-    <div class="logo"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/></svg></div>
-    <div><h1 id="title">Zima Connect</h1><div class="sub" id="sub">Loading…</div></div>
-  </header>
+<div id="app"></div>
+<div id="toast" class="toast" hidden></div>
 
-  <section id="setup" hidden>
-    <div class="card pad">
-      <div class="name">Set up your household</div>
-      <p class="muted" style="margin:4px 0 0">Install Zima Connect on your computer or phone, choose <b>Add device → Join server</b> and paste this code. The first device becomes the owner.</p>
-      <code id="code"></code>
-      <button id="copy">Copy code</button>
-    </div>
-  </section>
+<script>
+const $ = (s, el=document) => el.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const CAPS = [['files','Files and photos'],['clipboard','Clipboard'],['notifications','Notifications'],['ring','Find my device'],['calls','Calls (coming soon)']];
+const LOGO = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/></svg>';
+
+let S = null;          // server state
+let session = null;    // {configured, authed}
+let timer = null;
+
+function toast(msg, error=false){
+  const t = $('#toast'); t.textContent = msg; t.className = 'toast' + (error?' error':''); t.hidden = false;
+  clearTimeout(toast.h); toast.h = setTimeout(()=>t.hidden = true, error?5000:2400);
+}
+async function api(path, body){
+  const r = await fetch(path, body === undefined ? {} : {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
+  const j = await r.json().catch(()=>({}));
+  if(!r.ok){ const e = new Error(j.error || r.statusText); e.status = r.status; throw e; }
+  return j;
+}
+const admin = op => api('/api/admin', {op});
+const defaultAllowed = (from,to,cap) => from === to || cap === 'files';
+function allowed(from,to,cap){
+  const r = S.rules.find(x => x.from_user===from && x.to_user===to && x.cap===cap);
+  return r ? r.allow : defaultAllowed(from,to,cap);
+}
+function ago(ts){ const s=Math.max(0,(S.now||0)-ts); return s; }
+function fmtBytes(n){ if(n<1024) return n+' B'; if(n<1048576) return (n/1024).toFixed(0)+' KB'; if(n<1073741824) return (n/1048576).toFixed(1)+' MB'; return (n/1073741824).toFixed(2)+' GB'; }
+function fmtUp(s){ const d=Math.floor(s/86400),h=Math.floor(s%86400/3600),m=Math.floor(s%3600/60); return d? d+' d '+h+' h' : h? h+' h '+m+' min' : m+' min'; }
+function fmtExp(ts){ const s = ts-(S.now||0); if(s<=0) return 'expired'; const h=Math.floor(s/3600); return h>=1 ? 'expires in '+h+' h' : 'expires in '+Math.max(1,Math.floor(s/60))+' min'; }
+function icon(p){ return p==='android'||p==='ios' ? '📱' : p==='server' ? '🗄️' : '💻'; }
+
+/* ───────── auth screens ───────── */
+function viewAuth(){
+  const first = !session.configured;
+  $('#app').innerHTML = `<div class="center"><form class="card login" id="f">
+    <div class="logo">${LOGO}</div>
+    <h1>${first ? 'Set up Zima Connect' : 'Sign in'}</h1>
+    <div class="sub">${first ? 'Choose an administrator password for this server page. You will use it to manage people, devices and rules.' : 'Enter the administrator password.'}</div>
+    <div class="field"><input id="pw" type="password" placeholder="Password" autocomplete="${first?'new-password':'current-password'}" autofocus></div>
+    ${first ? '<div class="field"><input id="pw2" type="password" placeholder="Repeat password" autocomplete="new-password"></div><div class="muted" style="margin-top:6px">At least 8 characters.</div>' : ''}
+    <div class="err" id="err"></div>
+    <button class="btn" style="width:100%;margin-top:8px">${first ? 'Continue' : 'Sign in'}</button></form></div>`;
+  $('#f').onsubmit = async e => {
+    e.preventDefault();
+    const pw = $('#pw').value;
+    if(first && pw !== $('#pw2').value){ $('#err').textContent = 'The passwords do not match.'; return; }
+    try { await api(first ? '/api/setup' : '/api/login', {password: pw}); await boot(); }
+    catch(x){ $('#err').textContent = x.message; }
+  };
+}
+
+/* ───────── dashboard ───────── */
+function view(){
+  const owner = S.users.find(u => u.role === 'owner');
+  const setup = S.invites.find(i => i.label.startsWith('setup'));
+  const devsOf = u => S.devices.filter(d => d.user_id === u.id);
+  const pairs = S.users.flatMap(a => S.users.filter(b => b.id !== a.id).map(b => [a,b]));
+
+  $('#app').innerHTML = `<main>
+  <header class="top"><div class="logo">${LOGO}</div>
+    <div class="grow"><h1>${esc(S.household)}</h1><div class="sub">${S.users.length} ${S.users.length===1?'person':'people'} · ${S.devices.length} ${S.devices.length===1?'device':'devices'} · ${S.devices.filter(d=>d.online).length} online</div></div>
+    <button class="btn ghost" id="pwbtn">Password</button><button class="btn ghost" id="out">Sign out</button></header>
+
+  ${!owner && setup ? `<div class="notice"><b>Connect the first device.</b> Install Zima Connect on your computer or phone, choose <b>Add device → Join server</b> and scan or paste this code. The first device becomes the owner.
+     <div class="qr">${setup.qr}</div><code class="block">${esc(setup.code)}</code><button class="btn" data-copy="${esc(setup.code)}">Copy code</button></div>` : ''}
 
   <h2>People and devices</h2>
-  <div class="card" id="people"></div>
+  <div class="card">${S.users.length ? S.users.map(u => `
+    <div class="person"><div class="row"><div class="avatar">${esc(u.name.slice(0,1).toUpperCase())}</div>
+      <div class="grow"><span class="name">${esc(u.name)}</span></div>
+      <span class="pill">${u.role==='owner'?'Owner':'Member'}</span>
+      <button class="link" data-rename="${u.id}">Rename</button>
+      <button class="link" data-adddev="${u.id}" data-name="${esc(u.name)}">+ Device</button>
+      ${u.role==='owner' ? '' : `<button class="link danger" data-rmuser="${u.id}" data-name="${esc(u.name)}">Remove person</button>`}</div>
+      <div class="devs">${devsOf(u).map(d => `<div class="dev"><span class="dot ${d.online?'on':''}"></span><span>${icon(d.platform)} ${esc(d.name)}</span>
+        <span class="muted">${d.online ? 'online'+(d.rtt_ms!=null?' · '+d.rtt_ms+' ms':'') : 'offline'}</span><span class="grow"></span>
+        <button class="link danger" data-rmdev="${d.id}" data-name="${esc(d.name)}">Remove</button></div>`).join('') || '<div class="muted">No devices</div>'}</div></div>`).join('')
+    : '<div class="pad muted" style="text-align:center">Nobody has joined yet.</div>'}</div>
+  <form class="add" id="addp"><input type="text" id="pname" placeholder="Add a person, e.g. Mom" maxlength="40"><button class="btn" id="addbtn" disabled>Create invitation</button></form>
+
+  ${S.invites.filter(i=>!i.label.startsWith('setup')).length ? `<h2>Pending invitations</h2><div class="card">${S.invites.filter(i=>!i.label.startsWith('setup')).map(i => `
+    <div class="inv"><div class="grow"><div class="name">${esc(i.label)}</div><div class="muted">${fmtExp(i.expires)}</div></div>
+      <button class="link" data-show="${i.secret}">Show code</button><button class="link danger" data-revoke="${i.secret}">Revoke</button></div>`).join('')}</div>` : ''}
+
+  ${pairs.length ? `<h2>What people can do for each other</h2><div class="muted" style="margin:-4px 0 12px">Rules apply between people. A person’s own devices always work together. By default only files may be sent between people.</div>
+  <div class="grid">${pairs.map(([a,b]) => `<section class="card pol"><div class="pol-title">${esc(a.name)} <span class="arrow">→</span> ${esc(b.name)}</div>
+    <div class="muted" style="margin:2px 0 8px">What ${esc(a.name)} can do on ${esc(b.name)}’s devices</div>
+    ${CAPS.map(([c,l]) => `<label class="sw ${c==='calls'?'off':''}"><span>${l}</span><input type="checkbox" ${allowed(a.id,b.id,c)?'checked':''} ${c==='calls'?'disabled':''} data-rule="${a.id}|${b.id}|${c}"><span class="track"><span class="knob"></span></span></label>`).join('')}</section>`).join('')}</div>` : ''}
 
   <h2>Server</h2>
-  <div class="card pad">
-    <div class="muted">Server ID — devices recognise this server by its ID, no account or domain needed.</div>
-    <div class="id" id="hubid"></div>
-    <p class="muted" style="margin:12px 0 0">People, devices and what they may do for each other are managed in the owner's app.</p>
+  <div class="stats">
+    <div class="card stat"><span class="muted">Waiting for offline devices</span><b>${S.queue.items} ${S.queue.items===1?'item':'items'}</b><span class="muted">${fmtBytes(S.queue.bytes)} of files</span></div>
+    <div class="card stat"><span class="muted">Running for</span><b>${fmtUp(S.uptime_secs)}</b></div>
+    <div class="card stat"><span class="muted">Household version</span><b>${S.version}</b></div>
   </div>
-</main>
-<script>
-const $ = id => document.getElementById(id);
-const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
-async function load(){
-  try{
-    const d = await (await fetch('/api/state')).json();
-    if(!d) return;
-    $('title').textContent = d.household;
-    $('sub').textContent = d.users.length + (d.users.length===1?' person':' people') + ' · ' + d.devices.length + (d.devices.length===1?' device':' devices');
-    $('hubid').textContent = d.id;
-    const setup = d.invites && d.invites[0];
-    $('setup').hidden = !setup;
-    if(setup) $('code').textContent = setup.code;
-    $('people').innerHTML = d.users.length ? d.users.map(u => {
-      const devs = d.devices.filter(x => x.user_id === u.id);
-      return `<div class="row"><div class="avatar">${esc(u.name[0]||'?').toUpperCase()}</div>
-        <div class="grow"><div class="name">${esc(u.name)}</div>
-        <div class="muted">${devs.length ? devs.map(x=>esc(x.name)+' ('+esc(x.platform)+')').join(', ') : 'No devices'}</div></div>
-        <span class="pill">${u.role==='owner'?'Owner':'Member'}</span></div>`;
-    }).join('') : '<div class="empty">Nobody has joined yet.</div>';
-  }catch(e){ $('sub').textContent = 'Server not reachable'; }
+  <div class="card pad" style="margin-top:14px"><div class="muted">Server ID. Devices recognise this server by it. No account or domain needed.</div><div class="id">${esc(S.id)}</div></div>
+  </main>`;
+
+  $('#out').onclick = async () => { await api('/api/logout', {}); await boot(); };
+  $('#pwbtn').onclick = changePassword;
+  const pn = $('#pname'), ab = $('#addbtn');
+  pn.oninput = () => ab.disabled = !pn.value.trim();
+  $('#addp').onsubmit = e => { e.preventDefault(); if(pn.value.trim()) newInvite(null, pn.value.trim()); };
+  document.querySelectorAll('[data-copy]').forEach(b => b.onclick = () => copy(b.dataset.copy, b));
+  document.querySelectorAll('[data-adddev]').forEach(b => b.onclick = () => newInvite(b.dataset.adddev, null));
+  document.querySelectorAll('[data-rename]').forEach(b => b.onclick = () => rename(b.dataset.rename));
+  document.querySelectorAll('[data-rmuser]').forEach(b => b.onclick = () => confirmRun(`Remove ${b.dataset.name} and all their devices?`, {op:'remove_user', id:b.dataset.rmuser}, b.dataset.name+' removed'));
+  document.querySelectorAll('[data-rmdev]').forEach(b => b.onclick = () => confirmRun(`Remove “${b.dataset.name}” from the household? It will stop working with the other devices.`, {op:'remove_device', id:b.dataset.rmdev}, b.dataset.name+' removed'));
+  document.querySelectorAll('[data-revoke]').forEach(b => b.onclick = () => run({op:'revoke_invite', secret:b.dataset.revoke}, 'Invitation revoked'));
+  document.querySelectorAll('[data-show]').forEach(b => b.onclick = () => { const i = S.invites.find(x=>x.secret===b.dataset.show); if(i) showCode(i.label, i.code, i.qr); });
+  document.querySelectorAll('[data-rule]').forEach(cb => cb.onchange = () => {
+    const [from,to,cap] = cb.dataset.rule.split('|');
+    run(cb.checked === defaultAllowed(from,to,cap) ? {op:'clear_rule', from_user:from, to_user:to, cap} : {op:'set_rule', from_user:from, to_user:to, cap, allow:cb.checked});
+  });
 }
-$('copy').onclick = async () => { try{ await navigator.clipboard.writeText($('code').textContent); $('copy').textContent='Copied'; setTimeout(()=>$('copy').textContent='Copy code',1600);}catch{} };
-load(); setInterval(load, 5000);
+
+async function run(op, ok){
+  try { await admin(op); if(ok) toast(ok); await refresh(); }
+  catch(e){ toast(e.message, true); await refresh(); }
+}
+function confirmRun(msg, op, ok){ if(confirm(msg)) run(op, ok); }
+function rename(id){
+  const u = S.users.find(x=>x.id===id); const n = prompt('New name', u.name);
+  if(n && n.trim() && n.trim() !== u.name) run({op:'rename_user', id, name:n.trim()}, 'Renamed');
+}
+async function newInvite(userId, name){
+  try {
+    const r = await admin({op:'create_invite', user_id:userId, new_user_name:name});
+    const label = userId ? 'New device for '+S.users.find(u=>u.id===userId).name : 'Invitation for '+name;
+    await refresh(); showCode(label, r.code, r.qr);
+  } catch(e){ toast(e.message, true); }
+}
+function showCode(label, code, qr){
+  const o = document.createElement('div'); o.className = 'overlay';
+  o.innerHTML = `<div class="modal"><h3>${esc(label)}</h3>
+    <div class="muted">On the new device install Zima Connect, choose <b>Add device → Join server</b> and scan or paste this code. It works once and expires in 24 hours.</div>
+    <div class="qr">${qr}</div><code class="block">${esc(code)}</code>
+    <div class="row" style="justify-content:flex-end"><button class="btn ghost" id="x">Close</button><button class="btn" id="c">Copy code</button></div></div>`;
+  document.body.appendChild(o);
+  o.onclick = e => { if(e.target === o) o.remove(); };
+  $('#x', o).onclick = () => o.remove();
+  $('#c', o).onclick = e => copy(code, e.target);
+}
+function changePassword(){
+  const o = document.createElement('div'); o.className = 'overlay';
+  o.innerHTML = `<form class="modal"><h3>Change password</h3>
+    <div class="field" style="margin-top:12px"><input type="password" id="cur" placeholder="Current password" autocomplete="current-password"></div>
+    <div class="field" style="margin-top:10px"><input type="password" id="nw" placeholder="New password (8+ characters)" autocomplete="new-password"></div>
+    <div class="err" id="e2"></div>
+    <div class="row" style="justify-content:flex-end"><button type="button" class="btn ghost" id="x">Cancel</button><button class="btn">Change</button></div></form>`;
+  document.body.appendChild(o);
+  $('#x', o).onclick = () => o.remove();
+  $('form', o).onsubmit = async e => {
+    e.preventDefault();
+    try { await api('/api/password', {current:$('#cur',o).value, new:$('#nw',o).value}); o.remove(); toast('Password changed'); }
+    catch(x){ $('#e2', o).textContent = x.message; }
+  };
+}
+async function copy(text, btn){
+  try { await navigator.clipboard.writeText(text); const t = btn.textContent; btn.textContent = 'Copied'; setTimeout(()=>btn.textContent = t, 1500); }
+  catch { toast('Select the code and copy it manually', true); }
+}
+
+async function refresh(){
+  try { S = await api('/api/state'); if(!document.querySelector('.overlay')) view(); }
+  catch(e){ if(e.status === 401){ await boot(); } }
+}
+async function boot(){
+  clearInterval(timer);
+  try { session = await api('/api/session'); } catch { $('#app').innerHTML = '<div class="center"><div class="muted">Server not reachable</div></div>'; return; }
+  if(!session.authed){ viewAuth(); return; }
+  await refresh();
+  timer = setInterval(refresh, 6000);
+}
+boot();
 </script>
 </body>
 </html>
