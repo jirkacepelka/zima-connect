@@ -45,10 +45,11 @@ impl DeviceId {
     /// Decode back into raw 32-byte form.
     pub fn to_bytes(&self) -> crate::error::Result<[u8; 32]> {
         let v = hex::decode(&self.0)?;
-        v.try_into().map_err(|_| crate::error::ZimaError::InvalidKeyLength {
-            expected: 32,
-            actual: 0,
-        })
+        v.try_into()
+            .map_err(|_| crate::error::ZimaError::InvalidKeyLength {
+                expected: 32,
+                actual: 0,
+            })
     }
 }
 

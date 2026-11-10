@@ -92,7 +92,7 @@ pub fn perform_pairing(
 
     let our_id = our_keys.device_id();
     let peer_kp_tmp = DeviceKeyPair::from_secret_bytes([0u8; 32]); // dummy, unused
-    // We need the peer's DeviceId. Derive it the same way.
+                                                                   // We need the peer's DeviceId. Derive it the same way.
     let peer_id = {
         use sha2::Digest;
         let hash = Sha256::digest(peer_public_bytes);

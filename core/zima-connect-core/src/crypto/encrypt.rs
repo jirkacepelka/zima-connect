@@ -38,8 +38,8 @@ pub fn encrypt(key: &[u8], plaintext: &[u8]) -> Result<Vec<u8>> {
         });
     }
 
-    let cipher = Aes256Gcm::new_from_slice(key)
-        .map_err(|e| ZimaError::EncryptionFailed(e.to_string()))?;
+    let cipher =
+        Aes256Gcm::new_from_slice(key).map_err(|e| ZimaError::EncryptionFailed(e.to_string()))?;
 
     let mut nonce_bytes = [0u8; NONCE_LEN];
     rand::thread_rng().fill_bytes(&mut nonce_bytes);
@@ -82,8 +82,8 @@ pub fn decrypt(key: &[u8], nonce_and_ciphertext: &[u8]) -> Result<Vec<u8>> {
     let (nonce_bytes, ciphertext) = nonce_and_ciphertext.split_at(NONCE_LEN);
     let nonce = Nonce::from_slice(nonce_bytes);
 
-    let cipher = Aes256Gcm::new_from_slice(key)
-        .map_err(|e| ZimaError::DecryptionFailed(e.to_string()))?;
+    let cipher =
+        Aes256Gcm::new_from_slice(key).map_err(|e| ZimaError::DecryptionFailed(e.to_string()))?;
 
     cipher
         .decrypt(nonce, ciphertext)

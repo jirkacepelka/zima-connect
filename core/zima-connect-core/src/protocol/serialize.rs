@@ -48,7 +48,10 @@ mod tests {
 
     #[test]
     fn roundtrip_compact() {
-        let original = Dummy { a: 42, b: "hello".into() };
+        let original = Dummy {
+            a: 42,
+            b: "hello".into(),
+        };
         let packed = to_msgpack(&original).unwrap();
         let back: Dummy = from_msgpack(&packed).unwrap();
         assert_eq!(original, back);
@@ -56,7 +59,10 @@ mod tests {
 
     #[test]
     fn roundtrip_named() {
-        let original = Dummy { a: 99, b: "world".into() };
+        let original = Dummy {
+            a: 99,
+            b: "world".into(),
+        };
         let packed = to_msgpack_named(&original).unwrap();
         let back: Dummy = from_msgpack(&packed).unwrap();
         assert_eq!(original, back);

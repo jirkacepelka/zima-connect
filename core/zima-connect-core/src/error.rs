@@ -10,7 +10,6 @@ use thiserror::Error;
 #[derive(Debug, Error)]
 pub enum ZimaError {
     // ── Cryptography ────────────────────────────────────────────────────
-
     /// AES-256-GCM encryption failed (e.g. invalid key length).
     #[error("encryption failed: {0}")]
     EncryptionFailed(String),
@@ -38,7 +37,6 @@ pub enum ZimaError {
     },
 
     // ── Serialization ───────────────────────────────────────────────────
-
     /// MessagePack encoding failed.
     #[error("msgpack encode error: {0}")]
     EncodeFailed(String),
@@ -52,7 +50,6 @@ pub enum ZimaError {
     HexDecodeFailed(String),
 
     // ── Protocol ────────────────────────────────────────────────────────
-
     /// An envelope field failed validation (missing, out-of-range, etc.).
     #[error("invalid envelope: {0}")]
     InvalidEnvelope(String),

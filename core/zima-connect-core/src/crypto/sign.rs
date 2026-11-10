@@ -73,8 +73,8 @@ impl std::fmt::Debug for SigningKeyPair {
 pub fn verify(verifying_key_bytes: &[u8; 32], message: &[u8], signature: &[u8]) -> Result<()> {
     let vk = VerifyingKey::from_bytes(verifying_key_bytes)?;
 
-    let sig = Signature::from_slice(signature)
-        .map_err(|e| ZimaError::SignatureError(e.to_string()))?;
+    let sig =
+        Signature::from_slice(signature).map_err(|e| ZimaError::SignatureError(e.to_string()))?;
 
     vk.verify(message, &sig)
         .map_err(|e| ZimaError::SignatureError(e.to_string()))
