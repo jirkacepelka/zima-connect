@@ -211,8 +211,13 @@ jobs:
 
       # "What's new" shown in the apps' update dialogs: the commits since the previous release.
       - name: Release notes
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          PREV="$(git describe --tags --abbrev=0 "${VERSION}^" 2>/dev/null || true)"
+          # Changes since the last *published* release (a tag whose build failed has no release).
+          PREV="$(gh release list --exclude-drafts --limit 1 --json tagName --jq '.[0].tagName' 2>/dev/null || true)"
+          [ "$PREV" = "$VERSION" ] && PREV=""
+          [ -n "$PREV" ] || PREV="$(git describe --tags --abbrev=0 "${VERSION}^" 2>/dev/null || true)"
           RANGE="${PREV:+$PREV..}${VERSION}"
           {
             echo "## What's new"

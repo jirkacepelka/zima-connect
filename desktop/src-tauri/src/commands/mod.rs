@@ -183,7 +183,14 @@ pub async fn drag_out(id: String, name: String, size: u64, window: tauri::Webvie
     window
         .run_on_main_thread(move || {
             let icon = include_bytes!("../../icons/32x32.png").to_vec();
-            let _ = drag::start_drag(&w, drag::DragItem::Files(vec![path]), drag::Image::Raw(icon), |_, _| {}, drag::Options::default());
+            // GTK (Linux) wants its own window type.
+            #[cfg(target_os = "linux")]
+            let target = w.gtk_window();
+            #[cfg(not(target_os = "linux"))]
+            let target: Result<&tauri::WebviewWindow, ()> = Ok(&w);
+            if let Ok(target) = target {
+                let _ = drag::start_drag(&target, drag::DragItem::Files(vec![path]), drag::Image::Raw(icon), |_, _| {}, drag::Options::default());
+            }
         })
         .map_err(|e| e.to_string())
 }
