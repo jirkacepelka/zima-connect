@@ -3,6 +3,7 @@ use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
 use crate::household::{AdminOp, SignedSnapshot};
+use crate::mailbox::{Entry, Item};
 
 const MAX_MSG: u32 = 4 * 1024 * 1024;
 
@@ -44,6 +45,20 @@ pub enum Request {
     Admin {
         op: AdminOp,
     },
+    // -- offline queue (hub) --
+    /// Leave an item for an offline device. Files are followed by raw bytes.
+    Deposit {
+        to: String,
+        item: Item,
+    },
+    Inbox,
+    /// Followed (in the reply) by the raw bytes when the item is a file.
+    Fetch {
+        id: String,
+    },
+    Ack {
+        id: String,
+    },
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -55,6 +70,9 @@ pub enum Response {
     Snapshot { snapshot: SignedSnapshot },
     NotModified,
     InviteCode { code: String },
+    Queued,
+    Inbox { entries: Vec<Entry> },
+    Entry { entry: Entry },
     Err { message: String },
 }
 

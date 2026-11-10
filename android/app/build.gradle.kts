@@ -4,6 +4,10 @@ plugins {
     alias(libs.plugins.kotlin.compose)
 }
 
+// Version comes from the release workflow (-PappVersion=1.2.3 -PappVersionCode=10203).
+val appVersion = (project.findProperty("appVersion") as String?) ?: "0.2.0"
+val appVersionCode = ((project.findProperty("appVersionCode") as String?) ?: "2").toInt()
+
 android {
     namespace = "dev.zimaconnect"
     compileSdk = 35
@@ -12,19 +16,34 @@ android {
         applicationId = "dev.zimaconnect"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = appVersionCode
+        versionName = appVersion
+    }
 
-        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+    // The Rust library is built by cargo-ndk into src/main/jniLibs (see the release workflow).
+    sourceSets["main"].jniLibs.srcDir("src/main/jniLibs")
+
+    signingConfigs {
+        create("release") {
+            // CI supplies a keystore; locally the debug key is used so `assembleRelease` just works.
+            val ks = System.getenv("ZC_KEYSTORE")
+            if (ks != null && file(ks).exists()) {
+                storeFile = file(ks)
+                storePassword = System.getenv("ZC_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("ZC_KEY_ALIAS")
+                keyPassword = System.getenv("ZC_KEY_PASSWORD")
+            } else {
+                initWith(signingConfigs.getByName("debug"))
+            }
+        }
     }
 
     buildTypes {
         release {
             isMinifyEnabled = true
-            proguardFiles(
-                getDefaultProguardFile("proguard-android-optimize.txt"),
-                "proguard-rules.pro"
-            )
+            isShrinkResources = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            signingConfig = signingConfigs.getByName("release")
         }
     }
     compileOptions {
@@ -37,6 +56,9 @@ android {
     buildFeatures {
         compose = true
     }
+    packaging {
+        jniLibs.useLegacyPackaging = false
+    }
 }
 
 dependencies {
@@ -46,16 +68,9 @@ dependencies {
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.compose.ui)
     implementation(libs.androidx.compose.ui.graphics)
-    implementation(libs.androidx.compose.ui.tooling.preview)
     implementation(libs.androidx.compose.material3)
     implementation(libs.androidx.compose.material.icons)
-    implementation(libs.androidx.navigation.compose)
-
-    // Networking & WebSockets
-    implementation(libs.okhttp)
-    implementation(libs.okhttp.logging)
     implementation(libs.kotlinx.coroutines.android)
-
-    // Background workers
-    implementation(libs.androidx.work.runtime.ktx)
+    implementation(libs.zxing.embedded)
+    implementation(libs.zxing.core)
 }

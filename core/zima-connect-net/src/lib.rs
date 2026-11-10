@@ -12,6 +12,7 @@
 
 mod household;
 mod hub;
+mod mailbox;
 mod proto;
 mod store;
 
@@ -29,6 +30,7 @@ use tokio::sync::broadcast;
 
 pub use household::{AdminOp, Cap, Device, Role, Rule, SignedSnapshot, Snapshot, User};
 use hub::{HubCore, Outcome};
+use mailbox::{Item, Mailbox};
 use proto::{read_msg, write_msg, Request, Response};
 pub use store::Peer;
 use store::Store;
@@ -164,6 +166,30 @@ struct Membership {
     snapshot: Snapshot,
 }
 
+/// The peer could not be contacted (offline, no route).
+#[derive(Debug)]
+struct Unreachable(String);
+
+impl std::fmt::Display for Unreachable {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "device unreachable: {}", self.0)
+    }
+}
+
+impl std::error::Error for Unreachable {}
+
+/// How a send ended.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Delivery {
+    /// Handed to the device directly.
+    Delivered,
+    /// Device is offline: the server keeps it until the device is back.
+    Queued,
+}
+
+/// The peer could not be contacted (offline, no route).
+#[derive(Debug)]
 struct Who {
     id: String,
     name: String,
@@ -176,6 +202,7 @@ struct Inner {
     pending: Mutex<HashMap<String, Instant>>, // direct-pair secret -> created
     membership: Mutex<Option<Membership>>,
     hub: Option<HubCore>,
+    mailbox: Option<Mailbox>,
     events: broadcast::Sender<Event>,
 }
 
@@ -217,6 +244,10 @@ impl Node {
             Some(name) => Some(HubCore::load(cfg.data_dir.join("hub.json"), secret, name)?),
             None => None,
         };
+        let mailbox = match &cfg.hub {
+            Some(_) => Some(Mailbox::open(cfg.data_dir.join("mailbox"))?),
+            None => None,
+        };
         let membership = load_membership(&cfg.data_dir.join("household.json"));
 
         let (events, _) = broadcast::channel(64);
@@ -229,12 +260,20 @@ impl Node {
                 pending: Mutex::new(HashMap::new()),
                 membership: Mutex::new(membership),
                 hub,
+                mailbox,
                 events,
             }),
         };
         node.spawn_accept_loop();
         node.spawn_sync_loop();
         Ok(node)
+    }
+
+    /// Wait until the home relay is connected (so shared codes contain it). `false` on timeout.
+    pub async fn wait_online(&self, timeout: Duration) -> bool {
+        tokio::time::timeout(timeout, self.inner.endpoint.online())
+            .await
+            .is_ok()
     }
 
     /// This device's public identity.
@@ -643,20 +682,14 @@ impl Node {
         Ok(start.elapsed())
     }
 
-    /// Send clipboard text to a peer.
-    pub async fn send_clipboard(&self, peer_id: &str, text: String) -> Result<()> {
-        let r = self
-            .request_peer(
-                peer_id,
-                Request::Clipboard { text },
-                Some(Cap::Clipboard),
-                None,
-            )
-            .await?;
-        self.expect_ok(r)
+    /// Send clipboard text to a peer (kept on the server if the peer is offline).
+    pub async fn send_clipboard(&self, peer_id: &str, text: String) -> Result<Delivery> {
+        let req = Request::Clipboard { text: text.clone() };
+        self.deliver(peer_id, Cap::Clipboard, req, Item::Clipboard { text })
+            .await
     }
 
-    /// Make the peer ring / notify.
+    /// Make the peer ring (live only; a queued ring would be useless).
     pub async fn ring(&self, peer_id: &str) -> Result<()> {
         self.expect_ok(
             self.request_peer(peer_id, Request::Ring, Some(Cap::Ring), None)
@@ -664,28 +697,31 @@ impl Node {
         )
     }
 
-    /// Mirror a notification to a peer.
+    /// Mirror a notification to a peer (kept on the server if the peer is offline).
     pub async fn send_notification(
         &self,
         peer_id: &str,
         app: &str,
         title: &str,
         body: &str,
-    ) -> Result<()> {
+    ) -> Result<Delivery> {
         let req = Request::Notify {
             app: app.into(),
             title: title.into(),
             body: body.into(),
         };
-        self.expect_ok(
-            self.request_peer(peer_id, req, Some(Cap::Notifications), None)
-                .await?,
-        )
+        let item = Item::Notify {
+            app: app.into(),
+            title: title.into(),
+            body: body.into(),
+        };
+        self.deliver(peer_id, Cap::Notifications, req, item).await
     }
 
-    /// Stream a file to a peer.
-    pub async fn send_file(&self, peer_id: &str, path: &Path) -> Result<()> {
+    /// Stream a file to a peer (kept on the server if the peer is offline).
+    pub async fn send_file(&self, peer_id: &str, path: &Path) -> Result<Delivery> {
         let meta = tokio::fs::metadata(path).await.context("reading file")?;
+        let size = meta.len();
         let name = path
             .file_name()
             .and_then(|n| n.to_str())
@@ -693,13 +729,158 @@ impl Node {
             .to_string();
         let file = tokio::fs::File::open(path).await?;
         let req = Request::File {
-            name,
-            size: meta.len(),
+            name: name.clone(),
+            size,
         };
-        self.expect_ok(
-            self.request_peer(peer_id, req, Some(Cap::Files), Some((file, meta.len())))
-                .await?,
+        match self
+            .request_peer(peer_id, req, Some(Cap::Files), Some((file, size)))
+            .await
+        {
+            Ok(r) => {
+                self.expect_ok(r)?;
+                Ok(Delivery::Delivered)
+            }
+            Err(e) if self.should_queue(peer_id, &e) => {
+                let file = tokio::fs::File::open(path).await?;
+                self.deposit(peer_id, Item::File { name, size }, Some((file, size)))
+                    .await
+            }
+            Err(e) => Err(e),
+        }
+    }
+
+    /// Try the device directly; if it is offline hand the item to the server.
+    async fn deliver(&self, peer_id: &str, cap: Cap, req: Request, item: Item) -> Result<Delivery> {
+        match self.request_peer(peer_id, req, Some(cap), None).await {
+            Ok(r) => {
+                self.expect_ok(r)?;
+                Ok(Delivery::Delivered)
+            }
+            Err(e) if self.should_queue(peer_id, &e) => self.deposit(peer_id, item, None).await,
+            Err(e) => Err(e),
+        }
+    }
+
+    /// Queue only for household devices, when the failure was "unreachable".
+    fn should_queue(&self, peer_id: &str, e: &anyhow::Error) -> bool {
+        e.downcast_ref::<Unreachable>().is_some()
+            && self
+                .inner
+                .membership
+                .lock()
+                .unwrap()
+                .as_ref()
+                .is_some_and(|m| m.snapshot.device(peer_id).is_some())
+    }
+
+    async fn deposit(
+        &self,
+        peer_id: &str,
+        item: Item,
+        body: Option<(tokio::fs::File, u64)>,
+    ) -> Result<Delivery> {
+        let hub = {
+            let g = self.inner.membership.lock().unwrap();
+            g.as_ref().ok_or_else(|| anyhow!("not joined"))?.hub.clone()
+        };
+        let req = Request::Deposit {
+            to: peer_id.to_string(),
+            item,
+        };
+        match self.request(hub, req, body).await {
+            Ok(Response::Queued) => Ok(Delivery::Queued),
+            Ok(Response::Err { message }) => bail!("{message}"),
+            Ok(_) => bail!("unexpected response"),
+            Err(e) if e.downcast_ref::<Unreachable>().is_some() => {
+                bail!("device and server are both unreachable")
+            }
+            Err(e) => Err(e),
+        }
+    }
+
+    /// Collect everything the server kept for this device while it was offline.
+    pub async fn pull_inbox(&self) -> Result<usize> {
+        let hub = {
+            let g = self.inner.membership.lock().unwrap();
+            match g.as_ref() {
+                Some(m) => m.hub.clone(),
+                None => return Ok(0),
+            }
+        };
+        let entries = match self.request(hub.clone(), Request::Inbox, None).await? {
+            Response::Inbox { entries } => entries,
+            Response::Err { message } => bail!("{message}"),
+            _ => bail!("unexpected response"),
+        };
+        let mut n = 0;
+        for e in entries {
+            match self.fetch_entry(&hub, &e).await {
+                Ok(()) => n += 1,
+                Err(err) => tracing::debug!("inbox item {} failed: {err:#}", e.id),
+            }
+        }
+        Ok(n)
+    }
+
+    async fn fetch_entry(&self, hub: &EndpointAddr, e: &mailbox::Entry) -> Result<()> {
+        let conn = tokio::time::timeout(
+            Duration::from_secs(8),
+            self.inner.endpoint.connect(hub.clone(), ALPN),
         )
+        .await
+        .map_err(|_| anyhow!("server unreachable"))?;
+        let conn = ctx(conn)?;
+        let (mut send, mut recv) = ctx(conn.open_bi().await)?;
+        write_msg(&mut send, &Request::Fetch { id: e.id.clone() }).await?;
+        ctx(send.finish())?;
+        let entry = match read_msg::<_, Response>(&mut recv).await? {
+            Response::Entry { entry } => entry,
+            Response::Err { message } => bail!("{message}"),
+            _ => bail!("unexpected response"),
+        };
+        let ev = &self.inner.events;
+        match entry.item {
+            Item::Clipboard { text } => {
+                let _ = ev.send(Event::Clipboard {
+                    from: entry.from.clone(),
+                    from_name: entry.from_name.clone(),
+                    text,
+                });
+            }
+            Item::Notify { app, title, body } => {
+                let _ = ev.send(Event::Notification {
+                    from: entry.from.clone(),
+                    from_name: entry.from_name.clone(),
+                    app,
+                    title,
+                    body,
+                });
+            }
+            Item::File { name, size } => {
+                let path = unique_path(&self.inner.cfg.download_dir, &name).await;
+                let mut f = tokio::fs::File::create(&path).await?;
+                let mut limited = (&mut recv).take(size);
+                let n = tokio::io::copy(&mut limited, &mut f).await?;
+                f.flush().await?;
+                if n != size {
+                    let _ = tokio::fs::remove_file(&path).await;
+                    bail!("incomplete file");
+                }
+                let _ = ev.send(Event::FileReceived {
+                    from: entry.from.clone(),
+                    from_name: entry.from_name.clone(),
+                    name,
+                    path: path.to_string_lossy().into_owned(),
+                    size,
+                });
+            }
+        }
+        conn.close(0u32.into(), b"done");
+        // Only now is it safe for the server to forget the item.
+        let _ = self
+            .request(hub.clone(), Request::Ack { id: entry.id }, None)
+            .await;
+        Ok(())
     }
 
     /// Close the endpoint gracefully.
@@ -736,12 +917,12 @@ impl Node {
         body: Option<(tokio::fs::File, u64)>,
     ) -> Result<Response> {
         let conn = tokio::time::timeout(
-            Duration::from_secs(20),
+            Duration::from_secs(8),
             self.inner.endpoint.connect(addr, ALPN),
         )
         .await
-        .map_err(|_| anyhow!("peer unreachable (timeout)"))?;
-        let conn = ctx(conn)?;
+        .map_err(|_| anyhow::Error::new(Unreachable("timeout".into())))?;
+        let conn = conn.map_err(|e| anyhow::Error::new(Unreachable(e.to_string())))?;
         let (mut send, mut recv) = ctx(conn.open_bi().await)?;
         write_msg(&mut send, &req).await?;
         if let Some((mut file, len)) = body {
@@ -779,6 +960,9 @@ impl Node {
                     if let Err(e) = node.sync().await {
                         tracing::debug!("household sync failed: {e:#}");
                     }
+                    if let Err(e) = node.pull_inbox().await {
+                        tracing::debug!("inbox pull failed: {e:#}");
+                    }
                 }
                 tokio::time::sleep(SYNC_EVERY).await;
             }
@@ -791,7 +975,18 @@ impl Node {
         let (mut send, mut recv) = ctx(conn.accept_bi().await)?;
         let req: Request = read_msg(&mut recv).await?;
 
+        let mut stream_after: Option<PathBuf> = None;
         let resp = match &req {
+            Request::Deposit { .. }
+            | Request::Inbox
+            | Request::Fetch { .. }
+            | Request::Ack { .. } => {
+                let (r, p) = self
+                    .handle_mailbox_request(&req, &mut recv, &remote)
+                    .await?;
+                stream_after = p;
+                r
+            }
             Request::Join { .. } | Request::Sync { .. } | Request::Admin { .. } => {
                 self.handle_hub_request(&req, &remote)
             }
@@ -826,10 +1021,81 @@ impl Node {
             _ => self.handle_device_request(&req, &mut recv, &remote).await?,
         };
         write_msg(&mut send, &resp).await?;
+        if let Some(p) = stream_after {
+            let mut f = tokio::fs::File::open(p).await?;
+            tokio::io::copy(&mut f, &mut send).await?;
+        }
         ctx(send.finish())?;
         // Let the peer read the reply before we drop the connection.
         let _ = tokio::time::timeout(Duration::from_secs(5), conn.closed()).await;
         Ok(())
+    }
+
+    async fn handle_mailbox_request<R: tokio::io::AsyncRead + Unpin>(
+        &self,
+        req: &Request,
+        recv: &mut R,
+        remote: &str,
+    ) -> Result<(Response, Option<PathBuf>)> {
+        let (Some(hub), Some(mb)) = (self.inner.hub.as_ref(), self.inner.mailbox.as_ref()) else {
+            return Ok((
+                Response::Err {
+                    message: "this device is not a household server".into(),
+                },
+                None,
+            ));
+        };
+        let err = |m: String| (Response::Err { message: m }, None);
+        Ok(match req {
+            Request::Deposit { to, item } => {
+                let cap = match item {
+                    Item::Clipboard { .. } => Cap::Clipboard,
+                    Item::Notify { .. } => Cap::Notifications,
+                    Item::File { .. } => Cap::Files,
+                };
+                let from_name = match hub.check_deposit(remote, to, cap) {
+                    Ok(n) => n,
+                    Err(e) => return Ok(err(format!("{e}"))),
+                };
+                let entry = match mb.reserve(to, remote, &from_name, item.clone()) {
+                    Ok(e) => e,
+                    Err(e) => return Ok(err(format!("{e}"))),
+                };
+                if let Item::File { size, .. } = &entry.item {
+                    let path = mb.data_path(&entry.id);
+                    let mut f = tokio::fs::File::create(&path).await?;
+                    let mut limited = recv.take(*size);
+                    let n = tokio::io::copy(&mut limited, &mut f).await?;
+                    f.flush().await?;
+                    if n != *size {
+                        let _ = tokio::fs::remove_file(&path).await;
+                        return Ok(err("incomplete file".into()));
+                    }
+                }
+                mb.commit(&entry)?;
+                (Response::Queued, None)
+            }
+            Request::Inbox => (
+                Response::Inbox {
+                    entries: mb.for_device(remote),
+                },
+                None,
+            ),
+            Request::Fetch { id } => match mb.get(id, remote) {
+                Some(entry) => {
+                    let data = entry.item.is_file().then(|| mb.data_path(&entry.id));
+                    (Response::Entry { entry }, data)
+                }
+                None => err("item not found".into()),
+            },
+            Request::Ack { id } => {
+                if mb.get(id, remote).is_some() {
+                    mb.remove(id);
+                }
+                (Response::Ok, None)
+            }
+            _ => err("unexpected request".into()),
+        })
     }
 
     fn handle_hub_request(&self, req: &Request, remote: &str) -> Response {

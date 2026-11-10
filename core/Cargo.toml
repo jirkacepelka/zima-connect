@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["zima-connect-core", "zima-connect-net", "zima-connect-hub"]
+members = ["zima-connect-core", "zima-connect-net", "zima-connect-hub", "zima-connect-android"]
 
 [workspace.package]
 version = "0.1.0"

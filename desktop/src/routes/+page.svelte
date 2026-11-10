@@ -2,7 +2,8 @@
   import { onMount } from 'svelte';
   import Icon from '$lib/Icon.svelte';
   import HouseholdView from '$lib/HouseholdView.svelte';
-  import { api, errText, CAPS, type Activity, type Cap, type Contact, type Household } from '$lib/api';
+import Qr from '$lib/Qr.svelte';
+  import { api, errText, type Activity, type Cap, type Contact, type Delivery, type Household } from '$lib/api';
 
   let identity = $state<{ id: string; name: string; platform: string } | null>(null);
   let contacts = $state<Contact[]>([]);
@@ -93,16 +94,25 @@
     }
   }
 
-  const can = (c: Contact, cap: Cap) => c.online && c.caps.includes(cap);
+  // Household devices can be reached through the server even when offline (except "ring").
+  const can = (c: Contact, cap: Cap) =>
+    c.caps.includes(cap) && (c.online || (!c.direct && cap !== 'ring'));
   const why = (c: Contact, cap: Cap) =>
     !c.caps.includes(cap)
       ? `Not allowed for ${c.user_name ?? 'this device'} by your household rules`
-      : !c.online
+      : !can(c, cap)
         ? 'Device is not reachable right now'
         : '';
 
-  const sendClipboard = () => run('clip', () => api.sendClipboard(selected!.id), 'Clipboard sent');
-  const sendFile = () => run('file', () => api.sendFile(selected!.id), 'File sent');
+  // Shows its own toast, then returns false so run() adds no second one.
+  const done = (d: Delivery | null, what: string) => {
+    if (d !== null) {
+      say(d === 'queued' ? `${what} queued: the server delivers it when the device is back` : `${what} sent`);
+    }
+    return false;
+  };
+  const sendClipboard = () => run('clip', async () => done(await api.sendClipboard(selected!.id), 'Clipboard'), '');
+  const sendFile = () => run('file', async () => done(await api.sendFile(selected!.id), 'File'), '');
   const ring = () => run('ring', () => api.ring(selected!.id), 'Device is ringing');
 
   async function openDialog(start: 'server' | 'show' | 'enter' = household ? 'show' : 'server') {
@@ -436,6 +446,7 @@
             <code>{myCode}</code>
           {/if}
         </div>
+        {#if myCode}<div class="qr-wrap"><Qr text={myCode} /></div>{/if}
         <div class="modal-actions">
           <button class="primary" onclick={() => copy(myCode, 'code')} disabled={!myCode}>
             <Icon name={codeCopied ? 'check' : 'copy'} size={15} />
@@ -467,6 +478,7 @@
         It works once and expires in 24 hours.
       </p>
       <div class="code-box"><code>{invite.code}</code></div>
+      <div class="qr-wrap"><Qr text={invite.code} /></div>
       <div class="modal-actions">
         <button class="primary" onclick={() => copy(invite!.code, 'invite')}>
           <Icon name={inviteCopied ? 'check' : 'copy'} size={15} />
@@ -1068,5 +1080,8 @@
     color: var(--text);
     box-shadow: inset 0 0 0 1px var(--line);
     user-select: text;
+  }
+  .qr-wrap {
+    margin-top: 14px;
   }
 </style>

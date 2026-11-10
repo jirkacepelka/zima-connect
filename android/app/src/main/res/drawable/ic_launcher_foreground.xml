@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <!-- Link glyph, scaled into the adaptive-icon safe zone. -->
+    <group android:scaleX="0.5" android:scaleY="0.5" android:pivotX="12" android:pivotY="12">
+        <path
+            android:fillColor="#00000000"
+            android:pathData="M10,14a4,4 0,0 0,5.7 0l3,-3a4,4 0,0 0,-5.7 -5.7l-1,1M14,10a4,4 0,0 0,-5.7 0l-3,3a4,4 0,0 0,5.7 5.7l1,-1"
+            android:strokeColor="#FFFFFF"
+            android:strokeWidth="2.2"
+            android:strokeLineCap="round"
+            android:strokeLineJoin="round" />
+    </group>
+</vector>

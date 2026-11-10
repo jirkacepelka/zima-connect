@@ -208,6 +208,25 @@ impl HubCore {
             .unwrap_or(false)
     }
 
+    /// May `from` queue `cap` for `to`? Returns the sender's device name.
+    pub fn check_deposit(
+        &self,
+        from: &str,
+        to: &str,
+        cap: crate::household::Cap,
+    ) -> Result<String> {
+        let d = self.data.lock().unwrap();
+        let snap = self.snapshot_of(&d);
+        let f = snap
+            .device(from)
+            .ok_or_else(|| anyhow!("device is not part of this household"))?;
+        let t = snap.device(to).ok_or_else(|| anyhow!("unknown device"))?;
+        if !snap.allowed(&f.user_id, &t.user_id, cap) {
+            bail!("not allowed by your household policy");
+        }
+        Ok(f.name.clone())
+    }
+
     /// A device joins using an invite secret.
     pub fn join(
         &self,

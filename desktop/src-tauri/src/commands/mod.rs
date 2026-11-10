@@ -7,7 +7,7 @@ use tauri::{AppHandle, State};
 use tauri_plugin_clipboard_manager::ClipboardExt;
 use tauri_plugin_dialog::DialogExt;
 
-use zima_connect_net::{AdminOp, Contact, HouseholdInfo, Snapshot};
+use zima_connect_net::{AdminOp, Contact, Delivery, HouseholdInfo, Snapshot};
 
 use crate::state::{Activity, SharedState};
 
@@ -113,7 +113,7 @@ pub async fn send_clipboard(
     peer_id: String,
     app: AppHandle,
     state: State<'_, SharedState>,
-) -> Result<(), String> {
+) -> Result<Delivery, String> {
     let text = app.clipboard().read_text().map_err(|e| e.to_string())?;
     if text.is_empty() {
         return Err("Clipboard is empty".into());
@@ -121,9 +121,13 @@ pub async fn send_clipboard(
     let name = peer_name(&state, &peer_id);
     let n = text.chars().count();
     match state.node.send_clipboard(&peer_id, text).await {
-        Ok(()) => {
-            state.log("clipboard", "Clipboard sent", format!("{n} characters to {name}"), true, None);
-            Ok(())
+        Ok(d) => {
+            let (title, detail) = match d {
+                Delivery::Delivered => ("Clipboard sent", format!("{n} characters to {name}")),
+                Delivery::Queued => ("Clipboard queued", format!("{name} is offline, the server will deliver it")),
+            };
+            state.log("clipboard", title, detail, true, None);
+            Ok(d)
         }
         Err(e) => {
             state.log("clipboard", "Clipboard not sent", format!("{name}: {e:#}"), false, None);
@@ -138,18 +142,27 @@ pub async fn send_file(
     peer_id: String,
     app: AppHandle,
     state: State<'_, SharedState>,
-) -> Result<bool, String> {
+) -> Result<Option<Delivery>, String> {
     let picked = tokio::task::spawn_blocking(move || app.dialog().file().blocking_pick_file())
         .await
         .map_err(|e| e.to_string())?;
-    let Some(fp) = picked else { return Ok(false) };
+    let Some(fp) = picked else { return Ok(None) };
     let path: PathBuf = fp.into_path().map_err(|e| e.to_string())?;
     let fname = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
     let name = peer_name(&state, &peer_id);
     match state.node.send_file(&peer_id, &path).await {
-        Ok(()) => {
-            state.log("file", format!("Sent {fname}"), format!("to {name}"), true, None);
-            Ok(true)
+        Ok(d) => {
+            match d {
+                Delivery::Delivered => state.log("file", format!("Sent {fname}"), format!("to {name}"), true, None),
+                Delivery::Queued => state.log(
+                    "file",
+                    format!("Queued {fname}"),
+                    format!("{name} is offline, the server will deliver it"),
+                    true,
+                    None,
+                ),
+            }
+            Ok(Some(d))
         }
         Err(e) => {
             state.log("file", format!("Could not send {fname}"), format!("{name}: {e:#}"), false, None);

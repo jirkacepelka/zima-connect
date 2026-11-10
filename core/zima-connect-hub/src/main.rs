@@ -33,6 +33,11 @@ async fn main() -> anyhow::Result<()> {
     })
     .await?;
 
+    if node.wait_online(std::time::Duration::from_secs(15)).await {
+        println!("Connected to the relay network.");
+    } else {
+        println!("Warning: could not reach the relay network yet; devices outside your home network may not find this server.");
+    }
     println!("Zima Connect hub started. Server id: {}", node.id());
     if let Some(d) = node.hub_dashboard() {
         if !d.users.iter().any(|u| u.role == Role::Owner) {

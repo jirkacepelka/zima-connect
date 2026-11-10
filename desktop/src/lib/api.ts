@@ -1,5 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 
+export type Delivery = 'delivered' | 'queued';
 export type Cap = 'files' | 'clipboard' | 'notifications' | 'ring' | 'calls';
 export const CAPS: { id: Cap; label: string; hint: string }[] = [
   { id: 'files', label: 'Files and photos', hint: 'Send files' },
@@ -60,8 +61,8 @@ export const api = {
   pairingCode: () => invoke<string>('create_pairing_code'),
   pair: (code: string) => invoke<string>('pair_device', { code }),
   unpair: (id: string) => invoke<void>('unpair_device', { id }),
-  sendClipboard: (peerId: string) => invoke<void>('send_clipboard', { peerId }),
-  sendFile: (peerId: string) => invoke<boolean>('send_file', { peerId }),
+  sendClipboard: (peerId: string) => invoke<Delivery>('send_clipboard', { peerId }),
+  sendFile: (peerId: string) => invoke<Delivery | null>('send_file', { peerId }),
   ring: (peerId: string) => invoke<void>('ring_device', { peerId }),
   reveal: (path: string) => invoke<void>('reveal_path', { path })
 };

@@ -1,0 +1,10 @@
+**/target
+**/node_modules
+**/.git
+.claude
+android
+desktop
+dashboard
+docs
+**/build
+**/.svelte-kit
