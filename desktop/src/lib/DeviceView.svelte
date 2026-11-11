@@ -208,18 +208,18 @@
   {#if c.platform === 'android'}
     <div class="row slim">
       <Icon name="clipboard" size={18} />
-      <div class="grow"><div class="name">Text messages</div><div class="sub">{can('sms') ? 'Read and answer this phone’s SMS' : why('sms')}</div></div>
+      <div class="grow"><div class="name">Text messages</div><div class="sub">{can('sms') ? 'Read and answer SMS' : why('sms')}</div></div>
       <button class="btn btn-secondary" disabled={!can('sms')} onclick={onMessages}>Open</button>
     </div>
   {/if}
   <div class="row slim">
     <Icon name="call" size={18} />
-    <div class="grow"><div class="name">Voice call</div><div class="sub">{can('calls') ? 'Talk to the person at this device' : why('calls')}</div></div>
+    <div class="grow"><div class="name">Voice call</div><div class="sub">{can('calls') ? 'Talk to whoever is there' : why('calls')}</div></div>
     <button class="btn btn-secondary" disabled={!can('calls') || call.state !== 'idle'} onclick={() => startCall(c.id, c.name).catch((e) => say(errText(e), true))}>Call</button>
   </div>
   <div class="row slim">
     <Icon name="bell" size={18} />
-    <div class="grow"><div class="name">Find device</div><div class="sub">{can('ring') ? (ringing ? 'Ringing. Stops by itself after 30 s.' : 'Make it ring, even when silent') : why('ring')}</div></div>
+    <div class="grow"><div class="name">Find device</div><div class="sub">{can('ring') ? (ringing ? 'Ringing, stops after 30 s' : 'Make it ring') : why('ring')}</div></div>
     {#if ringing}
       <button class="btn btn-primary" onclick={onStopRing}>Stop</button>
     {:else}
@@ -228,7 +228,7 @@
   </div>
   <div class="row slim">
     <Icon name="touchpad" size={18} />
-    <div class="grow"><div class="name">Remote control</div><div class="sub">{can('remote') ? 'Touchpad, keyboard and media keys' : why('remote')}</div></div>
+    <div class="grow"><div class="name">Remote control</div><div class="sub">{can('remote') ? 'Touchpad, keys, media' : why('remote')}</div></div>
     <button class="btn btn-secondary" disabled={!can('remote')} aria-expanded={remoteOpen} onclick={() => (remoteOpen = !remoteOpen)}>{remoteOpen ? 'Hide' : 'Open'}</button>
   </div>
   {#if remoteOpen && can('remote')}<RemotePad peerId={c.id} name={c.name} {say} />{/if}

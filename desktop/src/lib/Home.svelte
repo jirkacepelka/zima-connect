@@ -41,6 +41,7 @@
     )
   );
   const online = $derived(contacts.filter((c) => c.online).length);
+  const away = $derived(contacts.filter((c) => !c.online).map((c) => c.name));
 
   function ago(ts: number) {
     const s = Math.max(0, Math.round((now - ts) / 1000));
@@ -59,7 +60,7 @@
   <div>
     <h1>Home</h1>
     <div class="finding num">
-      {#if contacts.length}{online} of {contacts.length} {contacts.length === 1 ? 'device' : 'devices'} online{:else}No other devices yet{/if}
+      {#if !contacts.length}No other devices yet{:else if !away.length}{contacts.length === 1 ? 'Your device is' : `All ${contacts.length} devices are`} connected{:else}{online} of {contacts.length} devices online · {away.slice(0, 2).join(', ')}{away.length > 2 ? ` and ${away.length - 2} more` : ''} offline{/if}
     </div>
   </div>
   <div class="actions"><button class="btn btn-secondary" onclick={onAdd}><Icon name="plus" size={15} /> Add device</button></div>

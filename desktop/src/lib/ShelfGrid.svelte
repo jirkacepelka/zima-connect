@@ -24,6 +24,9 @@
   let busy = $state(0);
   let preview = $state<ShelfItem | null>(null);
   let dragId = $state<string | null>(null);
+  let all = $state(false);
+  const PER_ROW = 6;
+  const visible = $derived(all ? items : items.slice(0, PER_ROW));
 
   async function load() {
     try {
@@ -131,7 +134,7 @@
     </div>
   {:else}
     <div class="grid" role="list">
-      {#each items as i (i.id)}
+      {#each visible as i (i.id)}
         <div class="tile" role="listitem" class:dragging={dragId === i.id} onpointerdown={(e) => down(e, i)}>
           <button class="open" onclick={() => (preview = i)} aria-label="Preview {i.name}"><Thumb item={i} /></button>
           <div class="cap">
@@ -148,7 +151,10 @@
         <div class="tile loading"><div class="thumb-ph"></div><div class="cap"><div class="n">Uploading…</div></div></div>
       {/if}
     </div>
-    <div class="foot sub">Drop more files anywhere on this card. Drag a file out to save it.</div>
+    <div class="foot">
+      {#if items.length > PER_ROW}<button class="link" onclick={() => (all = !all)}>{all ? 'Show less' : `Show all ${items.length}`}</button>{/if}
+      <span class="sub">Drop files here to add them. Drag a file out to save it anywhere.</span>
+    </div>
   {/if}
 </section>
 
@@ -166,7 +172,7 @@
 
 <style>
   .shelf {
-    margin-bottom: 44px;
+    margin-bottom: 36px;
     border-radius: 14px;
     transition: box-shadow 0.12s, background 0.12s;
   }
@@ -209,8 +215,8 @@
   }
   .grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(138px, 1fr));
-    gap: 20px 16px;
+    grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
+    gap: 16px 14px;
     padding: 0;
   }
   .tile {
@@ -287,6 +293,10 @@
     }
   }
   .foot {
-    padding: 14px 0 0;
+    padding: 12px 0 0;
+    display: flex;
+    gap: 14px;
+    align-items: center;
+    flex-wrap: wrap;
   }
 </style>

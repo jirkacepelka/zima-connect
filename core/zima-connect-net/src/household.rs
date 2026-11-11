@@ -60,12 +60,21 @@ pub enum Role {
 /// Colours people can have (hue in degrees). The same everywhere: server, computers, phones.
 pub const PALETTE: [u16; 12] = [8, 28, 46, 98, 150, 176, 200, 222, 252, 282, 312, 340];
 
-/// A palette colour nobody uses yet (or the least used one).
+/// The palette colour that is furthest from the colours people already have (the first person
+/// gets blue), so neighbours in a household never look alike.
 pub fn pick_hue(users: &[User]) -> u16 {
+    let used: Vec<u16> = users.iter().filter_map(|u| u.hue).collect();
+    if used.is_empty() {
+        return 222;
+    }
+    let dist = |a: u16, b: u16| {
+        let d = (i32::from(a) - i32::from(b)).abs();
+        d.min(360 - d)
+    };
     PALETTE
         .iter()
         .copied()
-        .min_by_key(|h| users.iter().filter(|u| u.hue == Some(*h)).count())
+        .max_by_key(|h| used.iter().map(|u| dist(*h, *u)).min().unwrap_or(360))
         .unwrap_or(222)
 }
 

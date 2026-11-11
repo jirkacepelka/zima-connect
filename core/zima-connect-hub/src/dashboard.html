@@ -262,6 +262,7 @@ const ICON = {
   chev: '<path d="M6 9l6 6 6-6"/>',
   copy: '<rect x="9" y="9" width="11" height="11" rx="1.5"/><path d="M15 9V5.5A1.5 1.5 0 0 0 13.5 4h-8A1.5 1.5 0 0 0 4 5.5v8A1.5 1.5 0 0 0 5.5 15H9"/>',
 };
+ICON.mark = '<path d="M7 7h10L7 17h10"/><circle cx="17" cy="7" r="1.5"/><circle cx="7" cy="17" r="1.5"/>';
 const icon = (n, s = 16) => `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICON[n]}</svg>`;
 
 /* What one person may do on another person's devices. The letter is the mark in the matrix. */
@@ -323,7 +324,7 @@ const route = () => location.hash.slice(1) || 'overview';
 function viewAuth() {
   const first = !session.configured;
   $('#app').innerHTML = `<main class="auth-wrap"><form class="auth" id="f">
-    <div class="mark"><span class="mark-glyph">${icon('link', 15)}</span><div><b>Zima Connect</b><span>Household server</span></div></div>
+    <div class="mark"><span class="mark-glyph">${icon('mark', 17)}</span><div><b>Zima Connect</b><span>Household server</span></div></div>
     <h1>${first ? 'Set an administrator password' : 'Sign in'}</h1>
     <p>${first ? 'You will use it to add people and devices and to decide what they may do for each other.' : 'Enter the administrator password for this server.'}</p>
     <div class="stack">
@@ -348,7 +349,7 @@ function shell(r, title, body) {
   const people = S.users.map(u => `<button class="nav-item" data-go="person/${u.id}" ${r === 'person/' + u.id ? 'aria-current="page"' : ''}>${av(u, 's')}<span class="lbl">${esc(u.name)}</span></button>`).join('');
   return `<div class="shell">
     <aside class="side" id="side" aria-label="Navigation">
-      <div class="mark"><span class="mark-glyph">${icon('link', 15)}</span><div><b>Zima Connect</b><span>${esc(S.household)}</span></div></div>
+      <div class="mark"><span class="mark-glyph">${icon('mark', 17)}</span><div><b>Zima Connect</b><span>${esc(S.household)}</span></div></div>
       <nav class="nav">
         <button class="nav-item" data-go="overview" ${r === 'overview' ? 'aria-current="page"' : ''}>${icon('overview')}<span class="lbl">Overview</span>${pending ? `<span class="count num" title="Invitations waiting">${pending}</span>` : ''}</button>
         <div class="nav-group">People</div>

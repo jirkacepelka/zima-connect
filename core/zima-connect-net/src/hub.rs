@@ -108,16 +108,20 @@ impl HubCore {
         Ok(hub)
     }
 
-    /// People created before colours existed get one.
+    /// People created before colours existed get one, and people who ended up with the same
+    /// colour as somebody before them get a different one.
     fn give_everyone_a_colour(&self) -> Result<()> {
         let mut d = self.data.lock().unwrap();
         let mut changed = false;
+        let mut done: Vec<User> = Vec::new();
         for i in 0..d.users.len() {
-            if d.users[i].hue.is_none() {
-                let h = pick_hue(&d.users);
-                d.users[i].hue = Some(h);
+            let mut u = d.users[i].clone();
+            if u.hue.is_none() || done.iter().any(|x| x.hue == u.hue) {
+                u.hue = Some(pick_hue(&done));
+                d.users[i].hue = u.hue;
                 changed = true;
             }
+            done.push(u);
         }
         if changed {
             d.version += 1;

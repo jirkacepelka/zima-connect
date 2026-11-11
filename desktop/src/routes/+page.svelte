@@ -289,7 +289,7 @@
 <div class="app">
   <aside class="side" aria-label="Navigation">
     <div class="mark">
-      <span class="glyph"><Icon name="link" size={15} /></span>
+      <span class="glyph"><Icon name="mark" size={17} /></span>
       <div><b>Zima Connect</b><span>{household ? household.info.household : 'Not connected to a server'}</span></div>
     </div>
 
@@ -322,11 +322,12 @@
 
   <main class="main" class:dragging>
     <div class="content">
-      {#if update}
+      {#if update && (view === 'home' || view === 'settings')}
         <div class="banner" role="status">
-          <div class="grow"><b>Version {update.latest} is available</b> <span class="sub">You have {update.current}.</span></div>
+          <span class="pip"></span>
+          <div class="grow">Version <b>{update.latest}</b> is available</div>
           <button class="link" onclick={() => (updateOpen = true)}>What’s new</button>
-          <button class="btn btn-primary" onclick={() => (updateOpen = true)}>Update</button>
+          <button class="upd" onclick={() => (updateOpen = true)}>Update</button>
         </div>
       {/if}
       {#if !loaded}
@@ -571,13 +572,26 @@
   .banner {
     display: flex;
     align-items: center;
-    gap: 14px;
-    flex-wrap: wrap;
-    padding: 12px 16px;
-    margin-bottom: 20px;
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-card);
+    gap: 12px;
+    padding: 7px 8px 7px 14px;
+    margin-bottom: 28px;
+    background: var(--hue-pale);
+    border-radius: 10px;
+    font-size: 13px;
+  }
+  .pip {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--hue);
+  }
+  .upd {
+    height: 26px;
+    padding: 0 12px;
+    border-radius: 6px;
+    background: var(--primary);
+    color: var(--primary-ink);
+    font-weight: 500;
   }
   .banner .grow {
     flex: 1;
