@@ -9,12 +9,13 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
-import android.graphics.Bitmap
 import android.graphics.Path
-import android.graphics.PixelFormat
 import android.hardware.display.DisplayManager
 import android.hardware.display.VirtualDisplay
-import android.media.ImageReader
+import android.media.MediaCodec
+import android.media.MediaCodecInfo
+import android.media.MediaFormat
+import android.os.Bundle
 import android.media.projection.MediaProjection
 import android.media.projection.MediaProjectionManager
 import android.os.Build
@@ -50,16 +51,65 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.core.app.NotificationCompat
 import org.json.JSONObject
-import java.io.ByteArrayOutputStream
+import kotlin.math.roundToInt
 
 /** This phone's screen for the owner's other devices: they see it and can touch it (both opt-in). */
 object ScreenBridge {
-    @Volatile var frame: ByteArray? = null
+    class Chunk(val seq: Long, val key: Boolean, val ts: Long, val data: ByteArray)
+
+    private val lock = Object()
+    private val chunks = ArrayList<Chunk>() // from the last key frame on
+    private var seq = 0L
+
     @Volatile var width = 0
+
     @Volatile var height = 0
 
-    /** When a viewer last asked for a picture: we only encode while somebody is looking. */
-    @Volatile var lastAsked = 0L
+    @Volatile var codec = "avc1.42001f"
+
+    @Volatile var wantKey: (() -> Unit)? = null
+
+    fun reset() = synchronized(lock) {
+        chunks.clear()
+        lock.notifyAll()
+    }
+
+    fun push(data: ByteArray, key: Boolean, ts: Long) = synchronized(lock) {
+        if (key) chunks.clear()
+        if (chunks.isEmpty() && !key) return
+        chunks.add(Chunk(++seq, key, ts, data))
+        lock.notifyAll()
+    }
+
+    /** Everything after [after]; from the last key frame when the viewer is new or fell behind. */
+    private fun video(after: Long): JSONObject {
+        val deadline = System.currentTimeMillis() + 250
+        var asked = false
+        synchronized(lock) {
+            while (true) {
+                val first = chunks.firstOrNull()
+                val out = when {
+                    first == null -> emptyList()
+                    after < 0 || first.seq > after + 1 -> chunks.toList()
+                    else -> chunks.filter { it.seq > after }
+                }
+                if (out.isNotEmpty() || !ScreenService.running) {
+                    val arr = org.json.JSONArray()
+                    out.forEach { c ->
+                        arr.put(JSONObject().put("seq", c.seq).put("key", c.key).put("ts", c.ts).put("data", Base64.encodeToString(c.data, Base64.NO_WRAP)))
+                    }
+                    return JSONObject().put("frames", arr).put("codec", codec).put("width", width).put("height", height)
+                }
+                if (first == null && !asked) {
+                    asked = true
+                    wantKey?.invoke()
+                }
+                val left = deadline - System.currentTimeMillis()
+                if (left <= 0) return JSONObject().put("frames", org.json.JSONArray()).put("codec", codec).put("width", width).put("height", height)
+                lock.wait(left)
+            }
+        }
+    }
 
     fun answer(ctx: Context, op: JSONObject): JSONObject {
         val kind = op.optString("op")
@@ -68,11 +118,9 @@ object ScreenBridge {
         return try {
             when (kind) {
                 "status" -> JSONObject().put("sharing", running).put("control", input != null).put("width", width).put("height", height)
-                "frame" -> {
+                "video" -> {
                     if (!running) return err("Screen sharing is off on the phone. Turn it on in the app's settings.")
-                    lastAsked = System.currentTimeMillis()
-                    val f = frame
-                    if (f == null) JSONObject().put("wait", true) else JSONObject().put("jpg", Base64.encodeToString(f, Base64.NO_WRAP)).put("width", width).put("height", height)
+                    video(op.optLong("after", -1))
                 }
                 "tap", "hold", "swipe", "key" -> {
                     val i = input ?: return err("Allow control: turn on Zima Connect in the phone's Accessibility settings.")
@@ -122,11 +170,11 @@ object ScreenBridge {
     }
 }
 
-/** Captures the screen while sharing is on. Needs the person's yes (the system asks) every time. */
+/** Captures the screen as H.264 while sharing is on. Needs the person's yes (the system asks) every time. */
 class ScreenService : Service() {
     private var projection: MediaProjection? = null
     private var display: VirtualDisplay? = null
-    private var reader: ImageReader? = null
+    private var encoder: MediaCodec? = null
     private var thread: HandlerThread? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -152,56 +200,91 @@ class ScreenService : Service() {
             .build()
         if (Build.VERSION.SDK_INT >= 29) startForeground(NOTE_ID, note, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION) else startForeground(NOTE_ID, note)
 
-        val mgr = getSystemService(MediaProjectionManager::class.java)
-        val p = mgr.getMediaProjection(code, data)
-        projection = p
-        p.registerCallback(object : MediaProjection.Callback() {
-            override fun onStop() {
-                stopSelf()
-            }
-        }, Handler(mainLooper))
+        try {
+            val mgr = getSystemService(MediaProjectionManager::class.java)
+            val p = mgr.getMediaProjection(code, data)
+            projection = p
+            p.registerCallback(object : MediaProjection.Callback() {
+                override fun onStop() {
+                    stopSelf()
+                }
+            }, Handler(mainLooper))
 
-        val (rw, rh) = ScreenBridge.realSize(this)
-        val scale = minOf(1f, 720f / rw)
-        val w = ((rw * scale).toInt() / 2) * 2
-        val h = ((rh * scale).toInt() / 2) * 2
-        ScreenBridge.width = w
-        ScreenBridge.height = h
-        val t = HandlerThread("zc-screen").also { it.start() }
-        thread = t
-        val handler = Handler(t.looper)
-        val r = ImageReader.newInstance(w, h, PixelFormat.RGBA_8888, 2)
-        reader = r
-        var last = 0L
-        r.setOnImageAvailableListener({ rd ->
-            val img = rd.acquireLatestImage() ?: return@setOnImageAvailableListener
-            try {
-                val now = System.currentTimeMillis()
-                // Only while somebody looks, about eight pictures a second.
-                if (now - last < 120 || now - ScreenBridge.lastAsked > 4000) return@setOnImageAvailableListener
-                last = now
-                val plane = img.planes[0]
-                val pad = plane.rowStride - plane.pixelStride * w
-                val bmp = Bitmap.createBitmap(w + pad / plane.pixelStride, h, Bitmap.Config.ARGB_8888)
-                bmp.copyPixelsFromBuffer(plane.buffer)
-                val out = ByteArrayOutputStream(64 * 1024)
-                Bitmap.createBitmap(bmp, 0, 0, w, h).compress(Bitmap.CompressFormat.JPEG, 60, out)
-                bmp.recycle()
-                ScreenBridge.frame = out.toByteArray()
-            } finally {
-                img.close()
+            // 720 wide, sizes in steps of 16 (what hardware encoders like).
+            val (rw, rh) = ScreenBridge.realSize(this)
+            val w = 720
+            val h = ((rh * 720f / rw) / 16f).roundToInt() * 16
+            ScreenBridge.width = w
+            ScreenBridge.height = h
+            ScreenBridge.reset()
+
+            val t = HandlerThread("zc-screen").also { it.start() }
+            thread = t
+            val handler = Handler(t.looper)
+            val fmt = MediaFormat.createVideoFormat(MediaFormat.MIMETYPE_VIDEO_AVC, w, h).apply {
+                setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface)
+                setInteger(MediaFormat.KEY_BIT_RATE, 5_000_000)
+                setInteger(MediaFormat.KEY_FRAME_RATE, 30)
+                setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 2)
+                // A still screen still sends a picture now and then, so a new viewer is never stuck.
+                setLong(MediaFormat.KEY_REPEAT_PREVIOUS_FRAME_AFTER, 200_000)
+                setInteger(MediaFormat.KEY_PROFILE, MediaCodecInfo.CodecProfileLevel.AVCProfileBaseline)
+                if (Build.VERSION.SDK_INT >= 30) setInteger(MediaFormat.KEY_LOW_LATENCY, 1)
             }
-        }, handler)
-        display = p.createVirtualDisplay("zima-connect", w, h, resources.displayMetrics.densityDpi, DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR, r.surface, null, handler)
-        running = true
+            val enc = MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_VIDEO_AVC)
+            encoder = enc
+            var csd = ByteArray(0)
+            enc.setCallback(object : MediaCodec.Callback() {
+                override fun onInputBufferAvailable(codec: MediaCodec, index: Int) {}
+
+                override fun onOutputBufferAvailable(codec: MediaCodec, index: Int, info: MediaCodec.BufferInfo) {
+                    try {
+                        val buf = codec.getOutputBuffer(index) ?: return
+                        val bytes = ByteArray(info.size)
+                        buf.position(info.offset)
+                        buf.get(bytes)
+                        when {
+                            info.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG != 0 -> {
+                                csd = bytes
+                                // avc1.PPCCLL from the SPS (the three bytes after the NAL header)
+                                val i = (0 until bytes.size - 7).firstOrNull { bytes[it].toInt() == 0 && bytes[it + 1].toInt() == 0 && bytes[it + 2].toInt() == 1 && bytes[it + 3].toInt() and 0x1f == 7 }
+                                if (i != null) ScreenBridge.codec = "avc1." + (4..6).joinToString("") { "%02x".format(bytes[i + it]) }
+                            }
+                            info.flags and MediaCodec.BUFFER_FLAG_KEY_FRAME != 0 -> ScreenBridge.push(csd + bytes, true, info.presentationTimeUs)
+                            else -> ScreenBridge.push(bytes, false, info.presentationTimeUs)
+                        }
+                    } finally {
+                        codec.releaseOutputBuffer(index, false)
+                    }
+                }
+
+                override fun onError(codec: MediaCodec, e: MediaCodec.CodecException) {
+                    stopSelf()
+                }
+
+                override fun onOutputFormatChanged(codec: MediaCodec, format: MediaFormat) {}
+            }, handler)
+            enc.configure(fmt, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
+            val surface = enc.createInputSurface()
+            enc.start()
+            ScreenBridge.wantKey = {
+                runCatching { enc.setParameters(Bundle().apply { putInt(MediaCodec.PARAMETER_KEY_REQUEST_SYNC_FRAME, 0) }) }
+            }
+            display = p.createVirtualDisplay("zima-connect", w, h, resources.displayMetrics.densityDpi, DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR, surface, null, handler)
+            running = true
+        } catch (e: Throwable) {
+            stopSelf()
+        }
         return START_NOT_STICKY
     }
 
     override fun onDestroy() {
         running = false
-        ScreenBridge.frame = null
+        ScreenBridge.wantKey = null
+        ScreenBridge.reset()
         display?.release()
-        reader?.close()
+        runCatching { encoder?.stop() }
+        runCatching { encoder?.release() }
         projection?.stop()
         thread?.quitSafely()
         super.onDestroy()

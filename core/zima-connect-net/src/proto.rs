@@ -46,9 +46,11 @@ pub enum PhoneOp {
 pub enum ScreenOp {
     /// What is shared right now: { sharing, control, width, height }.
     Status,
-    /// The latest picture as { jpg (base64), width, height }; `max_width` shrinks it.
-    Frame {
-        max_width: Option<u32>,
+    /// H.264 video: everything after picture number `after` (-1 = start with a key frame) as
+    /// { codec, width, height, frames: [{ seq, key, ts, data (base64, Annex B) }] }.
+    /// Waits a moment when nothing is new, so asking again at once streams.
+    Video {
+        after: i64,
     },
     Tap {
         x: f32,

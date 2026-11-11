@@ -37,8 +37,8 @@ async fn screen_view_and_touch() {
         while let Ok(e) = ev.recv().await {
             if let Event::ScreenRequest { req_id, op, .. } = e {
                 let v = match op {
-                    ScreenOp::Frame { .. } => {
-                        serde_json::json!({ "jpg": "AAAA", "width": 720, "height": 1600 })
+                    ScreenOp::Video { after } => {
+                        serde_json::json!({ "frames": [{ "seq": after + 1, "key": true }], "width": 720, "height": 1600 })
                     }
                     ScreenOp::Tap { x, y } if x > 1.0 || y > 1.0 => {
                         serde_json::json!({ "error": "outside the screen" })
@@ -52,12 +52,7 @@ async fn screen_view_and_touch() {
     });
 
     let f = pc
-        .screen(
-            &phone_id,
-            ScreenOp::Frame {
-                max_width: Some(480),
-            },
-        )
+        .screen(&phone_id, ScreenOp::Video { after: -1 })
         .await
         .unwrap();
     assert_eq!(f["height"], 1600);

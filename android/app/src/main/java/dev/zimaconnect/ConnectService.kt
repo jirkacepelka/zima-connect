@@ -163,8 +163,13 @@ class ConnectService : Service() {
                 runCatching { Api.call("sms_reply", Api.args("call_id" to ev.getLong("req_id"), "value" to reply)) }
             }
             "screen_request" -> {
-                val reply = ScreenBridge.answer(applicationContext, ev.getJSONObject("op"))
-                runCatching { Api.call("screen_reply", Api.args("call_id" to ev.getLong("req_id"), "value" to reply)) }
+                // Video requests wait for the next picture: do not hold up the other events.
+                val op = ev.getJSONObject("op")
+                val id = ev.getLong("req_id")
+                scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                    val reply = ScreenBridge.answer(applicationContext, op)
+                    runCatching { Api.call("screen_reply", Api.args("call_id" to id, "value" to reply)) }
+                }
             }
             "phone_request" -> {
                 val reply = PhoneBridge.answer(applicationContext, ev.getJSONObject("op"))

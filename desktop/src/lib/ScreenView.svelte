@@ -5,41 +5,83 @@
 
   let { peerId, name, say }: { peerId: string; name: string; say: (t: string, err?: boolean) => void } = $props();
 
-  type Frame = { jpg?: string; width?: number; height?: number; wait?: boolean };
-  let src = $state('');
-  let ratio = $state(9 / 19.5);
+  type Chunk = { seq: number; key: boolean; ts: number; data: string };
+  type Video = { frames?: Chunk[]; codec?: string; width?: number; height?: number };
   let problem = $state('');
   let control = $state(false);
-  let img: HTMLImageElement | undefined = $state();
+  let ratio = $state(9 / 19.5);
+  let canvas: HTMLCanvasElement | undefined = $state();
+  let fps = $state(0);
 
-  // Ask for pictures one after the other: the next one is requested when the last arrived.
+  // H.264 from the phone, decoded by the system (WebCodecs) and drawn at once.
+  // The next request goes out as soon as the last one is answered, so the video keeps flowing.
   onMount(() => {
     let alive = true;
+    let decoder: VideoDecoder | null = null;
+    let cfg = '';
+    let after = -1;
+    let shown = 0;
+    const timer = setInterval(() => {
+      fps = shown;
+      shown = 0;
+    }, 1000);
+    const bytes = (b64: string) => Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+    function decoderFor(codec: string) {
+      if (decoder && decoder.state !== 'closed' && cfg === codec) return decoder;
+      decoder?.close();
+      cfg = codec;
+      decoder = new VideoDecoder({
+        output: (f) => {
+          if (canvas) {
+            if (canvas.width !== f.displayWidth) canvas.width = f.displayWidth;
+            if (canvas.height !== f.displayHeight) canvas.height = f.displayHeight;
+            canvas.getContext('2d')!.drawImage(f, 0, 0);
+          }
+          f.close();
+          shown++;
+        },
+        error: (e) => {
+          problem = 'Could not play the video: ' + e.message;
+          after = -1;
+          decoder = null;
+        }
+      });
+      decoder.configure({ codec, optimizeForLatency: true, avc: { format: 'annexb' } } as VideoDecoderConfig);
+      return decoder;
+    }
     (async () => {
+      if (typeof VideoDecoder === 'undefined') {
+        problem = 'This computer cannot play video here (WebCodecs is missing). Update the app or Windows.';
+        return;
+      }
       try {
         const s = (await api.screenOp(peerId, { op: 'status' })) as { control?: boolean };
         control = !!s.control;
       } catch {
-        /* the frame request below shows the reason */
+        /* the video request below shows the reason */
       }
       while (alive) {
         try {
-          const f = (await api.screenOp(peerId, { op: 'frame', max_width: null })) as Frame;
+          const v = (await api.screenOp(peerId, { op: 'video', after })) as Video;
           problem = '';
-          if (f.jpg) {
-            src = 'data:image/jpeg;base64,' + f.jpg;
-            if (f.width && f.height) ratio = f.width / f.height;
-          } else {
-            await new Promise((r) => setTimeout(r, 150));
+          if (v.width && v.height) ratio = v.width / v.height;
+          for (const f of v.frames ?? []) {
+            const d = decoderFor(v.codec ?? 'avc1.42001f');
+            if (d.decodeQueueSize > 6 && !f.key) continue; // too far behind: wait for the next key frame
+            d.decode(new EncodedVideoChunk({ type: f.key ? 'key' : 'delta', timestamp: f.ts, data: bytes(f.data) }));
+            after = f.seq;
           }
         } catch (e) {
           problem = errText(e);
+          after = -1;
           await new Promise((r) => setTimeout(r, 1500));
         }
       }
     })();
     return () => {
       alive = false;
+      clearInterval(timer);
+      decoder?.close();
     };
   });
 
@@ -54,7 +96,7 @@
   // Click = tap, press and hold = long press, drag = swipe.
   let down: { x: number; y: number; t: number } | null = null;
   const at = (e: PointerEvent) => {
-    const r = img!.getBoundingClientRect();
+    const r = canvas!.getBoundingClientRect();
     return { x: Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)), y: Math.min(1, Math.max(0, (e.clientY - r.top) / r.height)) };
   };
   function pdown(e: PointerEvent) {
@@ -80,27 +122,18 @@
 </script>
 
 <div class="wrap">
-  {#if problem && !src}
+  {#if problem && !fps}
     <div class="note"><Icon name="alert" size={18} /> {problem}</div>
   {:else}
     <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-    <img
-      bind:this={img}
-      {src}
-      alt="Screen of {name}"
-      class:live={control}
-      style="aspect-ratio:{ratio}"
-      draggable="false"
-      onpointerdown={pdown}
-      onpointerup={pup}
-      onwheel={wheel}
-    />
+    <canvas bind:this={canvas} aria-label="Screen of {name}" class:live={control} style="aspect-ratio:{ratio}" onpointerdown={pdown} onpointerup={pup} onwheel={wheel}></canvas>
     {#if problem}<div class="note small">{problem}</div>{/if}
     <div class="keys">
       <button class="btn btn-secondary" disabled={!control} onclick={() => send({ op: 'key', name: 'back' })}>Back</button>
       <button class="btn btn-secondary" disabled={!control} onclick={() => send({ op: 'key', name: 'home' })}>Home</button>
       <button class="btn btn-secondary" disabled={!control} onclick={() => send({ op: 'key', name: 'recents' })}>Recent apps</button>
       <button class="btn btn-secondary" disabled={!control} onclick={() => send({ op: 'key', name: 'notifications' })}>Notifications</button>
+      <span class="sub num fps">{fps} fps</span>
     </div>
     {#if !control}<div class="sub">Viewing only. To touch it from here, turn on Zima Connect in the phone's Accessibility settings.</div>{/if}
   {/if}
@@ -112,7 +145,7 @@
     justify-items: center;
     gap: 12px;
   }
-  img {
+  canvas {
     height: min(66vh, 640px);
     max-width: 100%;
     border-radius: 18px;
@@ -121,7 +154,7 @@
     user-select: none;
     touch-action: none;
   }
-  img.live {
+  canvas.live {
     cursor: pointer;
   }
   .note {
@@ -141,5 +174,9 @@
     gap: 8px;
     flex-wrap: wrap;
     justify-content: center;
+    align-items: center;
+  }
+  .fps {
+    margin-left: 6px;
   }
 </style>

@@ -1,7 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 
 export type Delivery = 'delivered' | 'queued';
-export type ScreenOp = { op: 'status' } | { op: 'frame'; max_width: number | null } | { op: 'tap'; x: number; y: number } | { op: 'hold'; x: number; y: number } | { op: 'swipe'; x1: number; y1: number; x2: number; y2: number; ms: number } | { op: 'key'; name: 'back' | 'home' | 'recents' | 'notifications' };
+export type ScreenOp = { op: 'status' } | { op: 'video'; after: number } | { op: 'tap'; x: number; y: number } | { op: 'hold'; x: number; y: number } | { op: 'swipe'; x1: number; y1: number; x2: number; y2: number; ms: number } | { op: 'key'; name: 'back' | 'home' | 'recents' | 'notifications' };
 export type PhoneOp = { op: 'dial'; number: string } | { op: 'answer' } | { op: 'decline' } | { op: 'hang_up' } | { op: 'mute'; on: boolean } | { op: 'state' };
 export type Cap = 'files' | 'clipboard' | 'notifications' | 'ring' | 'calls' | 'remote' | 'status' | 'sms' | 'screen';
 export const CAPS: { id: Cap; label: string; hint: string }[] = [
