@@ -638,8 +638,10 @@ impl LocalSend {
         }
         {
             let mut g = self.inner.session.lock().unwrap();
+            // A new request from the same device replaces its old session; a stranger has to wait
+            // until the current one is finished or has been quiet for a while.
             if g.as_ref()
-                .is_some_and(|s| s.touched.elapsed() < Duration::from_secs(30 * 60))
+                .is_some_and(|s| s.ip != ip && s.touched.elapsed() < Duration::from_secs(5 * 60))
             {
                 return plain(StatusCode::CONFLICT);
             }
