@@ -146,7 +146,7 @@ pub fn clipboard_text(app: AppHandle) -> Result<String, String> {
 
 /// The phone's screen in its own window (one per device).
 #[tauri::command]
-pub fn open_screen_window(peer_id: String, name: String, app: AppHandle) -> Result<(), String> {
+pub async fn open_screen_window(peer_id: String, name: String, app: AppHandle) -> Result<(), String> {
     use tauri::{WebviewUrl, WebviewWindowBuilder};
     let label = format!("screen-{}", peer_id.chars().filter(|c| c.is_ascii_alphanumeric()).take(24).collect::<String>());
     if let Some(w) = app.get_webview_window(&label) {
