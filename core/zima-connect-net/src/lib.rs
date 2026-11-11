@@ -15,6 +15,7 @@ mod hub;
 pub mod localsend;
 mod mailbox;
 mod proto;
+pub mod quickshare;
 mod seal;
 mod shelf;
 mod store;

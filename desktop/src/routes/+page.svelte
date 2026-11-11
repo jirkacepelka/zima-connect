@@ -407,13 +407,14 @@
 </div>
 
 {#if incoming}
-  <Dialog title="Incoming files" onclose={() => decideIncoming(false)}>
+  <Dialog title="Incoming from a device nearby" onclose={() => decideIncoming(false)}>
     <p class="lead"><b>{incoming.from} wants to send you {incoming.files.length === 1 ? 'a file' : `${incoming.files.length} files`}</b></p>
     <ul class="files">
       {#each incoming.files.slice(0, 6) as f (f.id)}<li>{f.name} <span class="sub num">{size(f.size)}</span></li>{/each}
       {#if incoming.files.length > 6}<li class="sub">and {incoming.files.length - 6} more</li>{/if}
     </ul>
-    <div class="sub">{totalSize(incoming)} in total. Sent with LocalSend.</div>
+    {#if incoming.pin}<p class="lead">PIN <b class="num">{incoming.pin}</b>: accept only if the other device shows the same.</p>{/if}
+    <div class="sub">{totalSize(incoming)} in total. Sent with {incoming.via ?? 'LocalSend'}.</div>
     <div class="actions">
       <button class="btn btn-secondary" onclick={() => decideIncoming(false)}>Decline</button>
       <button class="btn btn-primary" onclick={() => decideIncoming(true)}>Accept</button>

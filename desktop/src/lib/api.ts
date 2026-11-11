@@ -53,9 +53,9 @@ export type UpdateInfo = {
 };
 export type SmsThread = { id: string; address: string; name: string | null; snippet: string; date: number; unread: boolean };
 export type SmsMessage = { id: string; address: string; body: string; date: number; outgoing: boolean };
-export type Settings = { background: boolean; autostart: boolean; allow_remote: boolean; localsend: boolean; clipboard_in: boolean; links_in: boolean; ring_in: boolean; notifications_in: boolean; phone_calls: boolean; sms: boolean; show_shelf: boolean; show_send: boolean; show_activity: boolean };
+export type Settings = { background: boolean; autostart: boolean; allow_remote: boolean; localsend: boolean; quickshare: boolean; clipboard_in: boolean; links_in: boolean; ring_in: boolean; notifications_in: boolean; phone_calls: boolean; sms: boolean; show_shelf: boolean; show_send: boolean; show_activity: boolean };
 export type LsPeer = { fingerprint: string; alias: string; model: string | null; device_type: string; ip: string; port: number; https: boolean };
-export type LsIncoming = { session: string; from: string; files: { id: string; name: string; size: number }[] };
+export type LsIncoming = { session: string; from: string; pin?: string; via?: string; files: { id: string; name: string; size: number }[] };
 export type RemoteInput =
   | { k: 'move'; dx: number; dy: number }
   | { k: 'click'; button: 'left' | 'right' | 'middle' | 'double' }

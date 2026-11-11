@@ -5,6 +5,7 @@ use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use serde::Serialize;
 use zima_connect_net::localsend::LocalSend;
+use zima_connect_net::quickshare::QuickShare;
 use zima_connect_net::Node;
 
 use crate::settings::Settings;
@@ -26,6 +27,7 @@ pub struct Activity {
 pub struct AppState {
     pub node: Node,
     pub localsend: LocalSend,
+    pub quickshare: QuickShare,
     pub activities: Mutex<Vec<Activity>>,
     next_id: Mutex<u64>,
     /// "Find my device": who is ringing this computer, since when.
@@ -37,10 +39,11 @@ pub struct AppState {
 }
 
 impl AppState {
-    pub fn new(node: Node, localsend: LocalSend, data_dir: PathBuf, settings: Settings) -> Self {
+    pub fn new(node: Node, localsend: LocalSend, quickshare: QuickShare, data_dir: PathBuf, settings: Settings) -> Self {
         Self {
             node,
             localsend,
+            quickshare,
             activities: Mutex::new(Vec::new()),
             next_id: Mutex::new(1),
             ringing: Mutex::new(None),

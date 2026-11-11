@@ -132,12 +132,16 @@
       <div class="grow"><div class="name">Visible to LocalSend</div><div class="sub">People nearby with the LocalSend app can send you files. You always get asked first.</div></div>
       <label class="switch"><input type="checkbox" role="switch" aria-label="Visible to LocalSend" checked={prefs.localsend} onchange={(e) => save({ localsend: e.currentTarget.checked })} /><i></i></label>
     </div>
+    <div class="row">
+      <div class="grow"><div class="name">Visible to Quick Share</div><div class="sub">Android phones nearby can send you files, texts and links. You see a PIN and always get asked first.</div></div>
+      <label class="switch"><input type="checkbox" role="switch" aria-label="Visible to Quick Share" checked={prefs.quickshare} onchange={(e) => save({ quickshare: e.currentTarget.checked })} /><i></i></label>
+    </div>
   {/if}
 </section>
 
 <section class="card" aria-labelledby="h-mod">
   <div class="card-head"><h2 id="h-mod">Modules</h2></div>
-  <div class="sub" style="padding:0 20px 6px">Turn off what you do not use. Remote control and LocalSend are under Background.</div>
+  <div class="sub" style="padding:0 20px 6px">Turn off what you do not use. Remote control, LocalSend and Quick Share are under Background.</div>
   {#if prefs}
     <div class="sub" style="padding:14px 20px 4px;font-weight:600">Show on this computer</div>
     <div class="row">

@@ -37,5 +37,13 @@ rcgen = { version = "0.14", default-features = false, features = ["ring", "pem"]
 socket2 = { version = "0.6", features = ["all"] }
 mime_guess = "2"
 
+# Quick Share (Google/Samsung): mDNS, UKEY2 key exchange (P-256), AES-256-CBC + HMAC messages, protobuf
+mdns-sd = "0.13"
+prost = "0.13"
+p256 = { version = "0.13", features = ["ecdh"] }
+hmac = "0.12"
+aes = "0.8"
+cbc = { version = "0.1", features = ["alloc"] }
+
 [dev-dependencies]
 iroh-relay = { version = "1.4.1", features = ["server"] }

@@ -174,7 +174,7 @@
     <p class="lead"><b>Who gets {readyCount === 1 ? 'it' : `these ${readyCount} items`}?</b></p>
     <div class="to" role="group" aria-label="Send to">
       {#if contacts.length === 0 && nearby.length === 0}
-        <div class="sub">No devices yet. Add one, or open LocalSend on a device nearby.</div>
+        <div class="sub">No devices yet. Add one, or open LocalSend or Quick Share on a device nearby.</div>
       {/if}
       {#each [{ label: 'My devices', items: mine }, { label: 'Others in the household', items: others }] as g}
         {#if g.items.length}
@@ -190,7 +190,7 @@
       {/each}
       {#if nearby.length}
         <div class="grp">
-          <span class="g">Nearby, with LocalSend</span>
+          <span class="g">Nearby, with LocalSend or Quick Share</span>
           {#each nearby as p (p.fingerprint)}
             <button class="pick" onclick={() => choosePeer('ls:' + p.fingerprint)}>
               <Icon name={p.device_type === 'mobile' ? 'phone' : 'laptop'} size={14} />{p.alias}

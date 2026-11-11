@@ -16,6 +16,7 @@ use tauri_plugin_autostart::ManagerExt;
 use tauri_plugin_clipboard_manager::ClipboardExt;
 use tauri_plugin_notification::NotificationExt;
 use zima_connect_net::localsend::{self, LocalSend, LsEvent};
+use zima_connect_net::quickshare::{self, QsEvent, QuickShare};
 use zima_connect_net::{Event, Node, NodeConfig};
 
 use state::AppState;
@@ -101,7 +102,45 @@ fn main() {
             })
             .map_err(|e| format!("could not start LocalSend: {e:#}"))?;
             ls.set_visible(prefs.localsend);
-            let state = Arc::new(AppState::new(node.clone(), ls.clone(), data_dir_copy, prefs));
+            // Quick Share: what Android phones use. Optional: if it cannot start, the rest still works.
+            let qs = tauri::async_runtime::block_on(QuickShare::start(quickshare::Config {
+                receive_dir: download_dir_copy.clone(),
+                alias: node.device_name(),
+                device_type: 3,
+                discovery: true,
+            }))
+            .map_err(|e| format!("could not start Quick Share: {e:#}"))?;
+            qs.set_visible(prefs.quickshare);
+            let state = Arc::new(AppState::new(node.clone(), ls.clone(), qs.clone(), data_dir_copy, prefs));
+            {
+                let handle = app.handle().clone();
+                let state = state.clone();
+                let mut rx = qs.subscribe();
+                tauri::async_runtime::spawn(async move {
+                    while let Ok(ev) = rx.recv().await {
+                        match ev {
+                            QsEvent::Incoming { session, from, pin, files } => {
+                                show_main(&handle);
+                                let n = files.len();
+                                let _ = handle.notification().builder().title(format!("{from} wants to send you {} item{}", n, if n == 1 { "" } else { "s" })).body(format!("PIN {pin}. Open Zima Connect to accept or decline")).show();
+                                let _ = handle.emit("ls-incoming", serde_json::json!({ "session": session, "from": from, "files": files, "pin": pin, "via": "Quick Share" }));
+                            }
+                            QsEvent::Received { from, name, path, size } => {
+                                state.log("file", format!("Received {name}"), format!("from {from} with Quick Share ({} KB)", size / 1024), true, Some(path));
+                                let _ = handle.emit("ls-done", ());
+                            }
+                            QsEvent::Text { from, text, url } => {
+                                let shown: String = text.chars().take(200).collect();
+                                state.log(if url { "link" } else { "clipboard" }, if url { "Received a link" } else { "Received a text" }, format!("from {from} with Quick Share: {shown}"), true, None);
+                                let _ = handle.emit("ls-done", ());
+                            }
+                            QsEvent::Done { .. } => {
+                                let _ = handle.emit("ls-done", ());
+                            }
+                        }
+                    }
+                });
+            }
             {
                 let handle = app.handle().clone();
                 let state = state.clone();
@@ -113,7 +152,7 @@ fn main() {
                                 show_main(&handle);
                                 let n = files.len();
                                 let _ = handle.notification().builder().title(format!("{from} wants to send you {} file{}", n, if n == 1 { "" } else { "s" })).body("Open Zima Connect to accept or decline").show();
-                                let _ = handle.emit("ls-incoming", serde_json::json!({ "session": session, "from": from, "files": files }));
+                                let _ = handle.emit("ls-incoming", serde_json::json!({ "session": session, "from": from, "files": files, "via": "LocalSend" }));
                             }
                             LsEvent::Received { from, name, path, size } => {
                                 state.log("file", format!("Received {name}"), format!("from {from} with LocalSend ({} KB)", size / 1024), true, Some(path));

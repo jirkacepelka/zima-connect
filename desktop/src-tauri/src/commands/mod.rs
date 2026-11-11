@@ -167,28 +167,52 @@ pub async fn set_my_color(hue: u16, state: State<'_, SharedState>) -> Result<(),
 pub async fn rename_device(name: String, state: State<'_, SharedState>) -> Result<String, String> {
     state.node.rename_device(&name).await.map_err(|e| format!("{e:#}"))?;
     state.localsend.set_alias(&state.node.device_name());
+    state.quickshare.set_alias(&state.node.device_name());
     Ok(state.node.device_name())
 }
 
 /// LocalSend devices nearby.
 #[tauri::command]
 pub fn ls_peers(state: State<'_, SharedState>) -> Vec<zima_connect_net::localsend::Peer> {
-    state.localsend.peers()
+    let mut all = state.localsend.peers();
+    // Quick Share devices look the same to the UI; their id starts with "qs:".
+    all.extend(state.quickshare.peers().into_iter().map(|p| zima_connect_net::localsend::Peer {
+        fingerprint: format!("qs:{}", p.id),
+        alias: p.alias,
+        model: Some("Quick Share".into()),
+        device_type: if p.device_type == "phone" || p.device_type == "tablet" { "mobile".into() } else { "desktop".into() },
+        ip: p.ip,
+        port: p.port,
+        https: false,
+        last_seen: 0,
+    }));
+    all
 }
 
 /// Send files to a LocalSend device (it asks its user first).
 #[tauri::command]
 pub async fn ls_send(fingerprint: String, paths: Vec<String>, state: State<'_, SharedState>) -> Result<(), String> {
+    let files: Vec<PathBuf> = paths.into_iter().map(PathBuf::from).filter(|p| p.is_file()).collect();
+    if files.is_empty() {
+        return Err("Folders cannot be sent yet. Choose files instead.".into());
+    }
+    if let Some(id) = fingerprint.strip_prefix("qs:") {
+        let peer = state.quickshare.peers().into_iter().find(|p| p.id == id).ok_or("That device is no longer nearby")?;
+        let label = if files.len() == 1 { files[0].file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default() } else { format!("{} files", files.len()) };
+        return match state.quickshare.send(&peer, &files).await {
+            Ok(()) => {
+                state.log("file", format!("Sent {label}"), format!("to {} with Quick Share", peer.alias), true, None);
+                Ok(())
+            }
+            Err(e) => Err(format!("{e:#}")),
+        };
+    }
     let peer = state
         .localsend
         .peers()
         .into_iter()
         .find(|p| p.fingerprint == fingerprint)
         .ok_or("That device is no longer nearby")?;
-    let files: Vec<PathBuf> = paths.into_iter().map(PathBuf::from).filter(|p| p.is_file()).collect();
-    if files.is_empty() {
-        return Err("Folders cannot be sent yet. Choose files instead.".into());
-    }
     let label = if files.len() == 1 {
         files[0].file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()
     } else {
@@ -206,6 +230,9 @@ pub async fn ls_send(fingerprint: String, paths: Vec<String>, state: State<'_, S
 /// Accept or decline files a LocalSend device wants to send here.
 #[tauri::command]
 pub fn ls_decide(session: String, accept: bool, state: State<'_, SharedState>) -> Result<(), String> {
+    if session.starts_with("qs:") {
+        return state.quickshare.decide(&session, accept).map_err(|e| format!("{e:#}"));
+    }
     state.localsend.decide(&session, accept).map_err(|e| format!("{e:#}"))
 }
 
@@ -223,6 +250,7 @@ pub fn set_settings(new: Settings, app: AppHandle, state: State<'_, SharedState>
         r.map_err(|e| e.to_string())?;
     }
     state.localsend.set_visible(new.localsend);
+    state.quickshare.set_visible(new.quickshare);
     settings::save(&state.data_dir, &new);
     *state.settings.lock().unwrap() = new.clone();
     Ok(new)
