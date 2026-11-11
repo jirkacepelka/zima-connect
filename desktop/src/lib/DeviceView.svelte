@@ -3,7 +3,6 @@
   import Icon from '$lib/Icon.svelte';
   import Mockup from '$lib/Mockup.svelte';
   import RemotePad from '$lib/RemotePad.svelte';
-  import ScreenView from '$lib/ScreenView.svelte';
   import FilesView from '$lib/FilesView.svelte';
   import Dialog from '$lib/Dialog.svelte';
   import { dial } from '$lib/phone.svelte';
@@ -39,10 +38,8 @@
   type Staged = { id: number; kind: 'file' | 'text' | 'link'; label: string; detail: string; path?: string; value?: string; state: 'ready' | 'sending' | 'done' | 'failed' };
   let staged = $state<Staged[]>([]);
   let nextId = 1;
-  let draft = $state('');
   let sending = $state(false);
   let remoteOpen = $state(false);
-  let screenOpen = $state(false);
   let filesOpen = $state(false);
   let dialOpen = $state(false);
   let number = $state('');
@@ -64,9 +61,29 @@
   // Anything can be sent when at least one of files, text or links is allowed.
   const canSend = $derived(can('files') || can('clipboard'));
 
+  // What you copied appears as something to send, once.
+  let seenClip = '';
+  async function peekClipboard() {
+    if (!can('clipboard')) return;
+    try {
+      const t = (await api.clipboardText()).trim();
+      if (t && t !== seenClip) {
+        seenClip = t;
+        addText(t);
+      }
+    } catch {
+      /* nothing readable */
+    }
+  }
+
   onMount(() => {
     onlistenDrop(addPaths);
-    return () => onlistenDrop(null);
+    peekClipboard();
+    window.addEventListener('focus', peekClipboard);
+    return () => {
+      onlistenDrop(null);
+      window.removeEventListener('focus', peekClipboard);
+    };
   });
 
   async function addPaths(paths: string[]) {
@@ -101,14 +118,6 @@
     } else {
       if (!can('clipboard')) return say(why('clipboard'), true);
       staged.push({ id: nextId++, kind: 'text', label: t.length > 48 ? t.slice(0, 48) + '…' : t, detail: `${t.length} characters`, value: t, state: 'ready' });
-    }
-    draft = '';
-  }
-  async function pasteFromClipboard() {
-    try {
-      addText(await navigator.clipboard.readText());
-    } catch {
-      say('Could not read the clipboard', true);
     }
   }
   function onPaste(e: ClipboardEvent) {
@@ -156,7 +165,7 @@
 
 <div class="layout" style="--h:{hue}">
 <div class="hero">
-  <div class="art"><Mockup kind={kindOf(c.platform, c.name)} platform={c.platform} {hue} online={c.online} battery={c.battery} size={210} fit="height" /></div>
+  <div class="art"><Mockup kind={kindOf(c.platform, c.name)} platform={c.platform} {hue} online={c.online} battery={c.battery} size={210} fit="height" maxWidth={250} /></div>
   <div class="meta">
     <h1>{c.name}</h1>
     <div class="line num"><span class="dot" class:on={c.online}></span>{c.online ? `Connected${c.rtt_ms !== null ? `, ${c.rtt_ms} ms` : ''}` : 'Not reachable right now'}</div>
@@ -174,16 +183,13 @@
 <section class="send" class:over={dragging && canSend} class:off={!canSend} aria-labelledby="h-send">
   <h2 id="h-send" class="sr">Send</h2>
   {#if !canSend}
-    <div class="zone"><Icon name="alert" size={20} /><b>Sending is not available</b><span class="sub">{why('files') || why('clipboard')}</span></div>
+    <div class="dropzone"><Icon name="alert" size={20} /><b>Sending is not available</b><span class="sub">{why('files') || why('clipboard')}</span></div>
   {:else if staged.length === 0}
-    <div class="zone" class:over={dragging}>
-      <Icon name="upload" size={26} />
+    <div class="dropzone" class:over={dragging}>
+      <Icon name="upload" size={22} />
       <b>Drop files here to send them to {c.name}</b>
-      <span class="sub">or paste text or a link below. Nothing is sent until you press Send.</span>
-      <div class="row-btns">
-        <button class="btn btn-secondary" disabled={!can('files')} onclick={chooseFiles}>Choose files…</button>
-        <button class="btn btn-secondary" disabled={!can('clipboard')} onclick={pasteFromClipboard}>Paste from clipboard</button>
-      </div>
+      <span class="sub">Text or a link you copied shows up here by itself. Nothing is sent until you press Send.</span>
+      <div class="btns"><button class="btn btn-secondary" disabled={!can('files')} onclick={chooseFiles}>Choose files…</button></div>
     </div>
   {:else}
     <ul class="staged" aria-label="Ready to send">
@@ -197,26 +203,10 @@
         </li>
       {/each}
     </ul>
-    <div class="more sub">Drop more files anywhere here{can('files') ? '' : ''}.</div>
-  {/if}
-
-  {#if canSend}
-    <form
-      class="bar"
-      onsubmit={(e) => {
-        e.preventDefault();
-        if (draft.trim()) addText(draft);
-        else if (readyCount) sendAll();
-      }}
-    >
-      <input class="field" bind:value={draft} placeholder="Type text or paste a link" aria-label="Text or link to send" disabled={!can('clipboard')} autocomplete="off" />
-      {#if staged.length > 0}
-        <button type="button" class="btn btn-secondary" onclick={chooseFiles} disabled={!can('files')}>Add files…</button>
-      {/if}
-      <button class="btn btn-primary" type="button" disabled={sending || (!readyCount && !draft.trim())} onclick={() => (draft.trim() ? addText(draft) : sendAll())}>
-        {draft.trim() ? 'Add' : sending ? 'Sending…' : readyCount ? `Send ${readyCount}` : 'Send'}
-      </button>
-    </form>
+    <div class="bar">
+      <button type="button" class="btn btn-secondary" onclick={chooseFiles} disabled={!can('files')}>Add files…</button>
+      <button class="btn btn-primary" type="button" disabled={sending || !readyCount} onclick={sendAll}>{sending ? 'Sending…' : `Send ${readyCount}`}</button>
+    </div>
   {/if}
 </section>
 
@@ -247,7 +237,7 @@
     <div class="row slim">
       <Icon name="phone" size={18} />
       <div class="grow"><div class="name">Phone screen</div><div class="sub">{can('screen') ? 'See it here and use it with your mouse' : why('screen')}</div></div>
-      <button class="btn btn-secondary" disabled={!can('screen')} onclick={() => (screenOpen = true)}>Open</button>
+      <button class="btn btn-secondary" disabled={!can('screen')} onclick={() => api.openScreen(c.id, c.name).catch((e) => say(errText(e), true))}>Open</button>
     </div>
   {/if}
   <div class="row slim">
@@ -281,20 +271,13 @@
   </Dialog>
 {/if}
 
-{#if screenOpen}
-  <Dialog wide title="{c.name}: screen" onclose={() => (screenOpen = false)}>
-    <ScreenView peerId={c.id} name={c.name} {say} />
-    <div class="actions"><button class="btn btn-secondary" onclick={() => (screenOpen = false)}>Close</button></div>
-  </Dialog>
-{/if}
-
 <style>
   /* The device on the left, what you do with it on the right. */
   .layout {
     display: grid;
     grid-template-columns: 300px minmax(0, 1fr);
-    grid-template-areas: 'hero send' 'tools send';
-    grid-template-rows: auto 1fr;
+    grid-template-areas: 'hero send' 'tools tools';
+    grid-template-rows: auto auto;
     column-gap: 24px;
     align-items: start;
   }
@@ -304,10 +287,6 @@
     flex-direction: column;
     gap: 14px;
     margin-bottom: 20px;
-    padding: 22px 20px 20px;
-    border-radius: 22px;
-    background: var(--surface);
-    box-shadow: 0 1px 2px rgb(0 0 0 / 0.04), 0 10px 30px -18px rgb(0 0 0 / 0.3);
   }
   .art {
     display: grid;
@@ -323,17 +302,17 @@
   }
   .send {
     grid-area: send;
-    padding: 22px;
-    border-radius: 22px;
+    padding: 20px;
+    border-radius: var(--radius-card);
     background: var(--surface);
-    box-shadow: 0 1px 2px rgb(0 0 0 / 0.04), 0 10px 30px -18px rgb(0 0 0 / 0.3);
+    border: 1px solid var(--border);
   }
   .tools {
     grid-area: tools;
-    padding: 8px 20px 14px;
-    border-radius: 22px;
+    padding: 4px 20px 8px;
+    border-radius: var(--radius-card);
     background: var(--surface);
-    box-shadow: 0 1px 2px rgb(0 0 0 / 0.04), 0 10px 30px -18px rgb(0 0 0 / 0.3);
+    border: 1px solid var(--border);
   }
   @media (max-width: 1000px) {
     .layout {

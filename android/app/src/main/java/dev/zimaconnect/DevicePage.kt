@@ -49,6 +49,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
@@ -148,7 +149,7 @@ fun DevicePage(c: Contact, say: (String) -> Unit) {
         item {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(
-                    Modifier.size(132.dp).clip(RoundedCornerShape(20.dp)).background(if (c.online) (if (dark) Color.hsl(hue, .22f, .12f) else Color.hsl(hue, .4f, .95f)) else MaterialTheme.colorScheme.surfaceVariant),
+                    Modifier.size(132.dp).then(if (c.online) Modifier else Modifier.alpha(0.5f)),
                     contentAlignment = Alignment.Center,
                 ) { DeviceArt(kindOf(c.platform, c.name), hue, c.online, c.battery, Modifier.size(112.dp)) }
                 Spacer(Modifier.width(18.dp))
@@ -186,7 +187,7 @@ fun DevicePage(c: Contact, say: (String) -> Unit) {
         // ── send
         item {
             Column(
-                Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).border(1.5.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(16.dp)).padding(16.dp),
+                Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).border(1.5.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(8.dp)).padding(16.dp),
             ) {
                 if (!canSend) {
                     Text("Sending is not available", style = MaterialTheme.typography.titleSmall)
@@ -206,7 +207,7 @@ fun DevicePage(c: Contact, say: (String) -> Unit) {
                     } else {
                         staged.forEach { s ->
                             Row(
-                                Modifier.fillMaxWidth().padding(bottom = 8.dp).clip(RoundedCornerShape(10.dp)).background(MaterialTheme.colorScheme.surfaceVariant).padding(horizontal = 12.dp, vertical = 8.dp),
+                                Modifier.fillMaxWidth().padding(bottom = 8.dp).clip(RoundedCornerShape(8.dp)).background(MaterialTheme.colorScheme.surfaceVariant).padding(horizontal = 12.dp, vertical = 8.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
                                 Icon(

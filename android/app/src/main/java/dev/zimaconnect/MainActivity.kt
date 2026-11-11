@@ -51,6 +51,10 @@ class MainActivity : ComponentActivity() {
 
     /** Files shared to Zima Connect from other apps (gallery, files, …). */
     private fun handleIntent(intent: Intent?) {
+        if (intent?.getBooleanExtra("ask_screen", false) == true) {
+            intent.removeExtra("ask_screen")
+            ScreenAsk.pending = true
+        }
         when (intent?.action) {
             Intent.ACTION_SEND -> {
                 @Suppress("DEPRECATION")

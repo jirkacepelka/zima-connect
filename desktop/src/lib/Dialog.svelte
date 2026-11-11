@@ -62,7 +62,7 @@
     max-height: calc(100vh - 40px);
     overflow: auto;
     background: var(--surface);
-    border-radius: 12px;
+    border-radius: var(--radius-card);
     box-shadow: var(--float);
     padding: 22px;
     user-select: text;

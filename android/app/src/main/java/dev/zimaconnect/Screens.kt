@@ -270,6 +270,7 @@ fun App(shared: List<Uri>, clearShared: () -> Unit) {
         }
     }
 
+    ScreenAskHost(::say)
     if (addOpen) AddDeviceDialog(onDismiss = { addOpen = false }, say = ::say)
     invite?.let { (code, label) -> InviteDialog(code, label) { invite = null } }
 

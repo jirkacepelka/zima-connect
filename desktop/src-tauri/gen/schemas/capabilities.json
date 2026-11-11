@@ -1,1 +1,1 @@
-{"default":{"identifier":"default","description":"Main window: events (file drops, update progress), window and webview control.","local":true,"windows":["main"],"permissions":["core:default","core:event:default","core:webview:default","core:window:default"]}}
+{"default":{"identifier":"default","description":"Main window: events (file drops, update progress), window and webview control.","local":true,"windows":["main","screen-*"],"permissions":["core:default","core:event:default","core:webview:default","core:window:default"]}}

@@ -118,6 +118,10 @@ object ScreenBridge {
         return try {
             when (kind) {
                 "status" -> JSONObject().put("sharing", running).put("control", input != null).put("width", width).put("height", height)
+                "ask" -> {
+                    if (!running) ScreenAsk.request(ctx)
+                    JSONObject().put("ok", true).put("sharing", running)
+                }
                 "video" -> {
                     if (!running) return err("Screen sharing is off on the phone. Turn it on in the app's settings.")
                     video(op.optLong("after", -1))
@@ -167,6 +171,50 @@ object ScreenBridge {
         val m = DisplayMetrics()
         wm.defaultDisplay.getRealMetrics(m)
         return m.widthPixels to m.heightPixels
+    }
+}
+
+/** Another device asked to see this screen: show a request, and let the person allow it. */
+object ScreenAsk {
+    var pending by mutableStateOf(false)
+
+    fun request(ctx: Context) {
+        val open = Intent(ctx, MainActivity::class.java).putExtra("ask_screen", true).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+        val pi = PendingIntent.getActivity(ctx, 9, open, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+        val note = NotificationCompat.Builder(ctx, ZimaConnectApp.CH_ASK)
+            .setSmallIcon(R.drawable.ic_stat)
+            .setContentTitle("A device wants to see this screen")
+            .setContentText("Tap to allow it")
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setCategory(NotificationCompat.CATEGORY_CALL)
+            .setAutoCancel(true)
+            .setContentIntent(pi)
+            .setFullScreenIntent(pi, true)
+            .build()
+        runCatching { ctx.getSystemService(android.app.NotificationManager::class.java).notify(4712, note) }
+        runCatching { ctx.startActivity(open) } // works at once when the app is in front
+    }
+}
+
+/** Lives in the app: when a request comes in, asks Android for the screen. */
+@Composable
+fun ScreenAskHost(say: (String) -> Unit) {
+    val ctx = LocalContext.current
+    val ask = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { r ->
+        val data = r.data
+        if (r.resultCode == Activity.RESULT_OK && data != null) {
+            ScreenService.start(ctx, r.resultCode, data)
+            say("Your other devices can now see this screen")
+        } else {
+            say("Screen sharing was not allowed")
+        }
+    }
+    if (ScreenAsk.pending) {
+        androidx.compose.runtime.LaunchedEffect(Unit) {
+            ScreenAsk.pending = false
+            ctx.getSystemService(android.app.NotificationManager::class.java).cancel(4712)
+            if (!ScreenService.running) ask.launch(ctx.getSystemService(MediaProjectionManager::class.java).createScreenCaptureIntent())
+        }
     }
 }
 

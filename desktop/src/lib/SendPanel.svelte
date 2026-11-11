@@ -24,7 +24,6 @@
   type Staged = { id: number; kind: 'file' | 'text' | 'link'; label: string; detail: string; path?: string; value?: string; state: 'ready' | 'sending' | 'done' | 'failed' };
   let staged = $state<Staged[]>([]);
   let nextId = 1;
-  let draft = $state('');
   let sending = $state(false);
   let picking = $state(false);
   let target = $state<string | null>(null); // a device id, or 'ls:' + fingerprint
@@ -40,9 +39,28 @@
   const destName = $derived(dest.kind === 'ls' ? dest.peer?.alias : dest.contact?.name);
   const readyCount = $derived(staged.filter((s) => s.state === 'ready' || s.state === 'failed').length);
 
+  // What you copied appears as something to send, once.
+  let seenClip = '';
+  async function peekClipboard() {
+    try {
+      const t = (await api.clipboardText()).trim();
+      if (t && t !== seenClip) {
+        seenClip = t;
+        addText(t);
+      }
+    } catch {
+      /* nothing readable */
+    }
+  }
+
   onMount(() => {
     onlistenDrop(addPaths);
-    return () => onlistenDrop(null);
+    peekClipboard();
+    window.addEventListener('focus', peekClipboard);
+    return () => {
+      onlistenDrop(null);
+      window.removeEventListener('focus', peekClipboard);
+    };
   });
 
   // Keep the choice valid when devices come and go.
@@ -75,7 +93,6 @@
     if (!t) return;
     if (URL_RE.test(t)) staged.push({ id: nextId++, kind: 'link', label: t.replace(/^https?:\/\//, ''), detail: 'opens in the browser', value: t, state: 'ready' });
     else staged.push({ id: nextId++, kind: 'text', label: t.length > 48 ? t.slice(0, 48) + '…' : t, detail: `${t.length} characters`, value: t, state: 'ready' });
-    draft = '';
   }
   function choosePeer(id: string) {
     target = id;
@@ -147,10 +164,7 @@
     <div class="dropzone" class:over={dragging}>
       <Icon name="upload" size={22} />
       <b>Drop files here</b>
-      <span class="sub">Or paste text or a link. You pick who gets it next.</span>
-      <div class="btns">
-        <button class="btn btn-secondary" onclick={async () => { try { addText(await navigator.clipboard.readText()); } catch { say('Could not read the clipboard', true); } }}>Paste from clipboard</button>
-      </div>
+      <span class="sub">Text or a link you copied shows up here by itself. You pick who gets it next.</span>
     </div>
   {:else}
     <ul class="staged" aria-label="Ready to send">
@@ -164,10 +178,9 @@
         </li>
       {/each}
     </ul>
-    <form class="add" onsubmit={(e) => { e.preventDefault(); addText(draft); }}>
-      <input class="field" bind:value={draft} placeholder="Add text or a link" aria-label="Text or link to add" autocomplete="off" />
+    <div class="add">
       <button type="button" class="btn btn-primary" disabled={sending || !readyCount} onclick={() => (picking = true)}>{sending ? 'Sending…' : `Send ${readyCount}…`}</button>
-    </form>
+    </div>
   {/if}
 </div>
 
@@ -287,10 +300,8 @@
   }
   .add {
     display: flex;
-    gap: 8px;
-  }
-  .add .field {
-    flex: 1;
+    justify-content: flex-end;
+    margin-top: 10px;
   }
   .to {
     display: grid;

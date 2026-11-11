@@ -11,7 +11,7 @@
 </script>
 
 <button class="dev" class:over class:offline={!c.online} data-device-id={c.id} style="--h:{hue}" onclick={onopen} aria-label="{c.name}, {c.online ? 'connected' : 'offline'}. Open.">
-  <div class="art"><Mockup kind={kindOf(c.platform, c.name)} platform={c.platform} {hue} online={c.online} battery={c.battery} size={132} fit="height" /></div>
+  <div class="art"><Mockup kind={kindOf(c.platform, c.name)} platform={c.platform} {hue} online={c.online} battery={c.battery} size={132} fit="height" maxWidth={150} /></div>
   <div class="info">
     <div class="name">{c.name}</div>
     <div class="owner"><span class="av">{(c.user_name ?? '·').slice(0, 1).toUpperCase()}</span>{ownerName(c)} <span class="sep">·</span> {PLATFORM[c.platform] ?? c.platform}</div>
@@ -43,7 +43,6 @@
   }
   .dev:hover {
     transform: translateY(-2px);
-    background: var(--surface);
   }
   .dev.over {
     box-shadow: 0 0 0 2px var(--hue);

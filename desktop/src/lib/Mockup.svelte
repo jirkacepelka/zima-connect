@@ -24,7 +24,8 @@
     online = true,
     battery = null,
     size = 120,
-    fit = 'long'
+    fit = 'long',
+    maxWidth = 0
   }: {
     kind: 'phone' | 'tablet' | 'laptop' | 'desktop' | 'server';
     platform?: string;
@@ -35,6 +36,8 @@
     size?: number;
     /** 'long': size is the longer side. 'height': every device is exactly this tall. */
     fit?: 'long' | 'height';
+    /** Shrink further when the device would be wider than this (0 = no limit). */
+    maxWidth?: number;
   } = $props();
 
   const uid = `nas${counter++}`;
@@ -46,7 +49,7 @@
     if (kind === 'desktop') return platform === 'macos' ? MODELS.imac : MODELS.studio;
     return null;
   });
-  const scale = $derived(model ? size / (fit === 'height' ? model.h : Math.max(model.w, model.h)) : 1);
+  const scale = $derived(model ? Math.min(size / (fit === 'height' ? model.h : Math.max(model.w, model.h)), maxWidth ? maxWidth / model.w : Infinity) : 1);
   const pct = $derived(battery ? Math.max(3, Math.min(100, battery[0])) : 0);
   const charging = $derived(!!battery && battery[1]);
   const mobile = $derived(kind === 'phone' || kind === 'tablet');

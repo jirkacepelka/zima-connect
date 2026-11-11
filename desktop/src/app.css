@@ -370,7 +370,7 @@ textarea.field {
   padding: 44px 20px;
   text-align: center;
   border: 1.5px dashed var(--control);
-  border-radius: 16px;
+  border-radius: var(--radius-card);
   color: var(--muted);
 }
 .dropzone b {

@@ -138,6 +138,35 @@ pub async fn screen_op(peer_id: String, op: zima_connect_net::ScreenOp, state: S
     state.node.screen(&peer_id, op).await.map_err(|e| format!("{e:#}"))
 }
 
+/// What is on this computer's clipboard (text), for the Send panel.
+#[tauri::command]
+pub fn clipboard_text(app: AppHandle) -> Result<String, String> {
+    app.clipboard().read_text().map_err(|e| e.to_string())
+}
+
+/// The phone's screen in its own window (one per device).
+#[tauri::command]
+pub fn open_screen_window(peer_id: String, name: String, app: AppHandle) -> Result<(), String> {
+    use tauri::{WebviewUrl, WebviewWindowBuilder};
+    let label = format!("screen-{}", peer_id.chars().filter(|c| c.is_ascii_alphanumeric()).take(24).collect::<String>());
+    if let Some(w) = app.get_webview_window(&label) {
+        let _ = w.unminimize();
+        let _ = w.show();
+        let _ = w.set_focus();
+        return Ok(());
+    }
+    let enc = |s: &str| -> String { s.bytes().map(|b| if b.is_ascii_alphanumeric() || b == b'-' || b == b'_' || b == b'.' { (b as char).to_string() } else { format!("%{b:02X}") }).collect() };
+    let url = format!("screen?peer={}&name={}", enc(&peer_id), enc(&name));
+    WebviewWindowBuilder::new(&app, label, WebviewUrl::App(url.into()))
+        .title(format!("{name} · Zima Connect"))
+        .inner_size(420.0, 860.0)
+        .min_inner_size(260.0, 420.0)
+        .resizable(true)
+        .build()
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 /// A folder of another device: { entries: [{ name, dir, size, mtime }] }.
 #[tauri::command]
 pub async fn files_list(peer_id: String, path: String, state: State<'_, SharedState>) -> Result<serde_json::Value, String> {

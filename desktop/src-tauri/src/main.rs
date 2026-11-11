@@ -346,6 +346,8 @@ fn main() {
             commands::sms_send,
             commands::phone_op,
             commands::screen_op,
+            commands::clipboard_text,
+            commands::open_screen_window,
             commands::files_list,
             commands::files_save,
             commands::files_explorer,

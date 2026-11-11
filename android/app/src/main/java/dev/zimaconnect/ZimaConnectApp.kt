@@ -26,6 +26,11 @@ class ZimaConnectApp : Application() {
             },
         )
         nm.createNotificationChannel(
+            NotificationChannel(CH_ASK, "Requests", NotificationManager.IMPORTANCE_HIGH).apply {
+                description = "A device of yours asks to see this screen"
+            },
+        )
+        nm.createNotificationChannel(
             NotificationChannel(CH_RING, "Find my phone", NotificationManager.IMPORTANCE_HIGH).apply {
                 description = "Shown while this phone is ringing because you asked to find it"
             },
@@ -38,5 +43,6 @@ class ZimaConnectApp : Application() {
         const val CH_SERVICE = "service"
         const val CH_EVENTS = "events"
         const val CH_RING = "ring"
+        const val CH_ASK = "ask"
     }
 }

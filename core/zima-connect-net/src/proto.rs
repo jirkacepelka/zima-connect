@@ -46,6 +46,8 @@ pub enum PhoneOp {
 pub enum ScreenOp {
     /// What is shared right now: { sharing, control, width, height }.
     Status,
+    /// Ask the phone's owner to start sharing (the phone shows a request).
+    Ask,
     /// H.264 video: everything after picture number `after` (-1 = start with a key frame) as
     /// { codec, width, height, frames: [{ seq, key, ts, data (base64, Annex B) }] }.
     /// Waits a moment when nothing is new, so asking again at once streams.

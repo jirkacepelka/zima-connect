@@ -1,7 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 
 export type Delivery = 'delivered' | 'queued';
-export type ScreenOp = { op: 'status' } | { op: 'video'; after: number } | { op: 'tap'; x: number; y: number } | { op: 'hold'; x: number; y: number } | { op: 'swipe'; x1: number; y1: number; x2: number; y2: number; ms: number } | { op: 'key'; name: 'back' | 'home' | 'recents' | 'notifications' };
+export type ScreenOp = { op: 'status' } | { op: 'ask' } | { op: 'video'; after: number } | { op: 'tap'; x: number; y: number } | { op: 'hold'; x: number; y: number } | { op: 'swipe'; x1: number; y1: number; x2: number; y2: number; ms: number } | { op: 'key'; name: 'back' | 'home' | 'recents' | 'notifications' };
 export type PhoneOp = { op: 'dial'; number: string } | { op: 'answer' } | { op: 'decline' } | { op: 'hang_up' } | { op: 'mute'; on: boolean } | { op: 'state' };
 export type Cap = 'files' | 'clipboard' | 'notifications' | 'ring' | 'calls' | 'remote' | 'status' | 'sms' | 'screen' | 'storage';
 export const CAPS: { id: Cap; label: string; hint: string }[] = [
@@ -128,6 +128,8 @@ export const api = {
   filesList: (peerId: string, path: string) => invoke<{ entries: { name: string; dir: boolean; size: number; mtime: number }[] }>('files_list', { peerId, path }),
   filesSave: (peerId: string, path: string) => invoke<string>('files_save', { peerId, path }),
   filesExplorer: (peerId: string) => invoke<void>('files_explorer', { peerId }),
+  clipboardText: () => invoke<string>('clipboard_text'),
+  openScreen: (peerId: string, name: string) => invoke<void>('open_screen_window', { peerId, name }),
   screenOp: (peerId: string, op: ScreenOp) => invoke<unknown>('screen_op', { peerId, op }),
   phoneOp: (peerId: string, op: PhoneOp) => invoke<unknown>('phone_op', { peerId, op }),
   lsPeers: () => invoke<LsPeer[]>('ls_peers'),

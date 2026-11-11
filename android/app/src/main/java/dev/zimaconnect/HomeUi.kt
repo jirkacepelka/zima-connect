@@ -94,7 +94,7 @@ fun ShelfThumb(item: ShelfItem, modifier: Modifier = Modifier, big: Boolean = fa
     }
 
     Box(
-        modifier.clip(RoundedCornerShape(10.dp)).background(MaterialTheme.colorScheme.surfaceVariant),
+        modifier.clip(RoundedCornerShape(8.dp)).background(MaterialTheme.colorScheme.surfaceVariant),
         contentAlignment = Alignment.Center,
     ) {
         val b = bmp
@@ -218,7 +218,7 @@ fun HomePage(onOpen: (String) -> Unit, onAdd: () -> Unit, onHousehold: () -> Uni
                 Text("The shelf lives on your Zima Connect server. Join the server first.", color = MaterialTheme.colorScheme.onSurfaceVariant)
             } else if (AppModel.shelf.isEmpty()) {
                 Column(
-                    Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).border(1.5.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(18.dp)).clickable { pick() }.padding(24.dp),
+                    Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).border(1.5.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(8.dp)).clickable { pick() }.padding(24.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
                     Text("Keep a file here", style = MaterialTheme.typography.titleSmall)
@@ -335,7 +335,7 @@ fun HomePage(onOpen: (String) -> Unit, onAdd: () -> Unit, onHousehold: () -> Uni
 private fun DeviceCard(c: Contact, dark: Boolean, modifier: Modifier, onClick: () -> Unit) {
     val hue = hueOf(c)
     Column(
-        modifier.clip(RoundedCornerShape(22.dp)).clickable(onClick = onClick).padding(horizontal = 6.dp, vertical = 8.dp),
+        modifier.clip(RoundedCornerShape(8.dp)).clickable(onClick = onClick).padding(horizontal = 6.dp, vertical = 8.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Box(Modifier.fillMaxWidth().height(128.dp), contentAlignment = Alignment.Center) {
@@ -450,7 +450,7 @@ fun SendPage(say: (String) -> Unit) {
         )
         Spacer(Modifier.height(16.dp))
         Column(
-            Modifier.fillMaxWidth().clip(RoundedCornerShape(22.dp)).border(1.5.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(22.dp)).clickable { pickSend() }.padding(vertical = 56.dp, horizontal = 24.dp),
+            Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).border(1.5.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(8.dp)).clickable { pickSend() }.padding(vertical = 56.dp, horizontal = 24.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Icon(Icons.Outlined.Add, null, Modifier.size(28.dp))

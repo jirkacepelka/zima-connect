@@ -13,6 +13,7 @@
   import SettingsView from '$lib/SettingsView.svelte';
   import HouseholdView from '$lib/HouseholdView.svelte';
   import UpdateDialog from '$lib/UpdateDialog.svelte';
+  import Logo from '$lib/Logo.svelte';
   import { api, errText, type Activity, type Contact, type Household, type LsIncoming, type LsPeer, type UpdateInfo } from '$lib/api';
   import { size } from '$lib/devices';
 
@@ -60,6 +61,20 @@
 
   // LocalSend devices nearby, and files they want to send here.
   let nearby = $state<LsPeer[]>([]);
+  let collapsed = $state(false);
+  try {
+    collapsed = localStorage.getItem('zc-side') === '1';
+  } catch {
+    /* no storage */
+  }
+  function toggleSide() {
+    collapsed = !collapsed;
+    try {
+      localStorage.setItem('zc-side', collapsed ? '1' : '0');
+    } catch {
+      /* no storage */
+    }
+  }
   let incoming = $state<LsIncoming | null>(null);
   async function decideIncoming(accept: boolean) {
     const i = incoming;
@@ -314,11 +329,12 @@
   };
 </script>
 
-<div class="app">
-  <aside class="side" aria-label="Navigation">
+<div class="app" class:collapsed>
+  <aside class="side" class:collapsed aria-label="Navigation">
     <div class="mark">
-      <span class="glyph"><Icon name="mark" size={17} /></span>
-      <div><b>Zima Connect</b><span>{household ? household.info.household : 'Not connected to a server'}</span></div>
+      <span class="glyph"><Logo size={30} /></span>
+      <div class="txt"><b>Zima Connect</b><span>{household ? household.info.household : 'Not connected to a server'}</span></div>
+      <button class="fold" onclick={toggleSide} aria-label={collapsed ? 'Expand the sidebar' : 'Collapse the sidebar'} title={collapsed ? 'Expand' : 'Collapse'}><Icon name="sidebar" size={16} /></button>
     </div>
 
     <nav class="nav">
@@ -495,6 +511,7 @@
     display: grid;
     grid-template-columns: 252px 1fr;
     gap: 6px;
+    transition: grid-template-columns 0.18s;
     height: 100vh;
     padding: 14px 14px 14px 14px;
     background: var(--ground);
@@ -503,9 +520,11 @@
     display: flex;
     flex-direction: column;
     padding: 20px 12px 12px;
-    border-radius: 24px;
+    border-radius: var(--radius-card);
     background: var(--surface);
-    box-shadow: 0 1px 2px rgb(0 0 0 / 0.05), 0 18px 44px -22px rgb(0 0 0 / 0.38);
+    border: 1px solid var(--border);
+    box-shadow: 0 18px 44px -26px rgb(0 0 0 / 0.38);
+    overflow: hidden;
     min-height: 0;
   }
   .mark {
@@ -515,12 +534,45 @@
     padding: 0 8px 18px;
   }
   .glyph {
+    display: grid;
+    flex: none;
+  }
+  .fold {
+    margin-left: auto;
     width: 28px;
     height: 28px;
-    border-radius: 7px;
-    border: 1.5px solid var(--text);
     display: grid;
     place-items: center;
+    border-radius: 6px;
+    color: var(--muted);
+  }
+  .fold:hover {
+    background: var(--raised);
+    color: var(--text);
+  }
+  .app.collapsed {
+    grid-template-columns: 72px 1fr;
+  }
+  .side.collapsed .txt,
+  .side.collapsed .lbl,
+  .side.collapsed .group,
+  .side.collapsed .empty-side,
+  .side.collapsed .who {
+    display: none;
+  }
+  .side.collapsed .mark {
+    flex-direction: column;
+    gap: 10px;
+    padding: 0 0 14px;
+  }
+  .side.collapsed .fold {
+    margin: 0;
+  }
+  .side.collapsed .item,
+  .side.collapsed .me {
+    justify-content: center;
+    padding-left: 0;
+    padding-right: 0;
   }
   .mark b {
     display: block;
@@ -586,7 +638,7 @@
     gap: 10px;
     padding: 10px 8px;
     margin: 8px 0 0;
-    border-radius: 14px;
+    border-radius: var(--radius-card);
     background: var(--raised);
     padding-left: 12px;
     padding-right: 12px;

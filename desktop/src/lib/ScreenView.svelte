@@ -12,6 +12,7 @@
   let ratio = $state(9 / 19.5);
   let canvas: HTMLCanvasElement | undefined = $state();
   let fps = $state(0);
+  let waiting = $state(false);
 
   // H.264 from the phone, decoded by the system (WebCodecs) and drawn at once.
   // The next request goes out as soon as the last one is answered, so the video keeps flowing.
@@ -55,8 +56,13 @@
         return;
       }
       try {
-        const s = (await api.screenOp(peerId, { op: 'status' })) as { control?: boolean };
+        const s = (await api.screenOp(peerId, { op: 'status' })) as { control?: boolean; sharing?: boolean };
         control = !!s.control;
+        if (!s.sharing) {
+          // Not shared yet: the phone shows a request, and sharing starts when it is allowed there.
+          waiting = true;
+          await api.screenOp(peerId, { op: 'ask' });
+        }
       } catch {
         /* the video request below shows the reason */
       }
@@ -64,6 +70,7 @@
         try {
           const v = (await api.screenOp(peerId, { op: 'video', after })) as Video;
           problem = '';
+          waiting = false;
           if (v.width && v.height) ratio = v.width / v.height;
           for (const f of v.frames ?? []) {
             const d = decoderFor(v.codec ?? 'avc1.42001f');
@@ -72,7 +79,7 @@
             after = f.seq;
           }
         } catch (e) {
-          problem = errText(e);
+          problem = waiting ? 'Waiting for you to allow it on the phone…' : errText(e);
           after = -1;
           await new Promise((r) => setTimeout(r, 1500));
         }
@@ -144,11 +151,12 @@
     display: grid;
     justify-items: center;
     gap: 12px;
+    padding: 12px;
   }
   canvas {
-    height: min(66vh, 640px);
+    height: calc(100vh - 110px);
     max-width: 100%;
-    border-radius: 18px;
+    border-radius: var(--radius-card);
     background: var(--raised);
     box-shadow: 0 0 0 1px var(--border), 0 12px 32px -16px rgb(0 0 0 / 0.5);
     user-select: none;
