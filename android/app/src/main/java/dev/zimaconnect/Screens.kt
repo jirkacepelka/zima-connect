@@ -244,7 +244,6 @@ fun App(shared: List<Uri>, clearShared: () -> Unit) {
         },
     ) { pad ->
         Column(Modifier.padding(pad).fillMaxSize()) {
-        CallOverlay()
         UpdateBanner(::say)
         AppModel.ringingFrom?.let { from ->
             Card(
@@ -435,7 +434,7 @@ private fun HouseholdScreen(say: (String) -> Unit, onInvite: (String, String) ->
                                 Text(label, modifier = Modifier.weight(1f))
                                 Switch(
                                     checked = h.allowed(from.id, to.id, cap),
-                                    enabled = h.canAdmin && !busy && cap != "calls",
+                                    enabled = h.canAdmin && !busy,
                                     onCheckedChange = { v ->
                                         val op = if (v == defaultAllowed(from.id, to.id, cap)) {
                                             JSONObject().put("op", "clear_rule")
@@ -470,6 +469,8 @@ private fun SettingsScreen(say: (String) -> Unit, onLeft: () -> Unit) {
             UpdateCard(say)
             Spacer(Modifier.height(16.dp))
             SmsCard(say)
+            Spacer(Modifier.height(12.dp))
+            PhoneCard(say)
             Spacer(Modifier.height(16.dp))
             RenameCard(say)
             if (AppModel.household != null) {

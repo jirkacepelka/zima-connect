@@ -62,7 +62,7 @@ val CAPS = listOf(
     "clipboard" to "Clipboard",
     "notifications" to "Notifications",
     "ring" to "Find my device",
-    "calls" to "Voice calls",
+    "calls" to "Phone calls",
     "remote" to "Remote control",
     "status" to "Battery and status",
     "sms" to "Text messages",
@@ -155,6 +155,9 @@ object AppModel {
     var batteries by mutableStateOf(mapOf<String, Pair<Int, Boolean>>())
     var shelf by mutableStateOf(listOf<ShelfItem>())
 
+    /** LocalSend devices on this network. */
+    var nearby by mutableStateOf(listOf<Nearby>())
+
     /** Who is making this phone ring right now (null = silent). */
     var ringingFrom by mutableStateOf<String?>(null)
 
@@ -193,6 +196,7 @@ object AppModel {
         if (ready.await().not()) return
         household = parseHousehold(Api.call("household"))
         contacts = parseContacts(Api.call("contacts"), contacts)
+        nearby = runCatching { LocalSendBridge.parse(Api.call("ls_peers")) }.getOrDefault(emptyList())
         val pinged = coroutineScope {
             contacts.map { c ->
                 async {
@@ -268,6 +272,11 @@ object AppModel {
             if (delivery == Delivery.Queued) "${peer.name} is offline, the server will deliver it" else "${text.length} characters to ${peer.name}",
         )
         return delivery
+    }
+
+    suspend fun sendNearby(peer: Nearby, file: File, label: String) {
+        Api.call("ls_send", Api.args("id" to peer.fingerprint, "path" to file.absolutePath))
+        log("file", "Sent $label", "to ${peer.alias} with LocalSend")
     }
 
     suspend fun sendFile(peer: Contact, file: File, label: String): Delivery {

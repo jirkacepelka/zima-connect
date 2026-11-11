@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import Icon from '$lib/Icon.svelte';
+  import { prefs as shared } from '$lib/prefs.svelte';
   import { PALETTE, api, errText, type Household, type Settings } from '$lib/api';
 
   let {
@@ -37,6 +38,7 @@
     const next = { ...prefs, ...patch };
     try {
       prefs = await api.setSettings(next);
+      shared.v = prefs;
     } catch (e) {
       say(errText(e), true);
     }
@@ -125,6 +127,56 @@
     <div class="row">
       <div class="grow"><div class="name">Allow remote control</div><div class="sub">Other devices may use their touchpad, keyboard and media keys here, only where your household rules allow it.</div></div>
       <label class="switch"><input type="checkbox" role="switch" aria-label="Allow remote control" checked={prefs.allow_remote} onchange={(e) => save({ allow_remote: e.currentTarget.checked })} /><i></i></label>
+    </div>
+    <div class="row">
+      <div class="grow"><div class="name">Visible to LocalSend</div><div class="sub">People nearby with the LocalSend app can send you files. You always get asked first.</div></div>
+      <label class="switch"><input type="checkbox" role="switch" aria-label="Visible to LocalSend" checked={prefs.localsend} onchange={(e) => save({ localsend: e.currentTarget.checked })} /><i></i></label>
+    </div>
+  {/if}
+</section>
+
+<section class="card" aria-labelledby="h-mod">
+  <div class="card-head"><h2 id="h-mod">Modules</h2></div>
+  <div class="sub" style="padding:0 20px 6px">Turn off what you do not use. Remote control and LocalSend are under Background.</div>
+  {#if prefs}
+    <div class="sub" style="padding:14px 20px 4px;font-weight:600">Show on this computer</div>
+    <div class="row">
+      <div class="grow"><div class="name">Shelf</div><div class="sub">Keep files for your own devices on the server.</div></div>
+      <label class="switch"><input type="checkbox" role="switch" aria-label="Shelf" checked={prefs.show_shelf} onchange={(e) => save({ show_shelf: e.currentTarget.checked })} /><i></i></label>
+    </div>
+    <div class="row">
+      <div class="grow"><div class="name">Send</div><div class="sub">The place to drop files, text and links and pick who gets them.</div></div>
+      <label class="switch"><input type="checkbox" role="switch" aria-label="Send" checked={prefs.show_send} onchange={(e) => save({ show_send: e.currentTarget.checked })} /><i></i></label>
+    </div>
+    <div class="row">
+      <div class="grow"><div class="name">Activity</div><div class="sub">The list of what was sent and received.</div></div>
+      <label class="switch"><input type="checkbox" role="switch" aria-label="Activity" checked={prefs.show_activity} onchange={(e) => save({ show_activity: e.currentTarget.checked })} /><i></i></label>
+    </div>
+    <div class="sub" style="padding:14px 20px 4px;font-weight:600">Receive from other devices</div>
+    <div class="row">
+      <div class="grow"><div class="name">Clipboard</div><div class="sub">Text other devices send lands in this computer’s clipboard.</div></div>
+      <label class="switch"><input type="checkbox" role="switch" aria-label="Clipboard" checked={prefs.clipboard_in} onchange={(e) => save({ clipboard_in: e.currentTarget.checked })} /><i></i></label>
+    </div>
+    <div class="row">
+      <div class="grow"><div class="name">Links</div><div class="sub">Web links other devices send open in your browser.</div></div>
+      <label class="switch"><input type="checkbox" role="switch" aria-label="Links" checked={prefs.links_in} onchange={(e) => save({ links_in: e.currentTarget.checked })} /><i></i></label>
+    </div>
+    <div class="row">
+      <div class="grow"><div class="name">Find my device</div><div class="sub">Let other devices make this computer ring.</div></div>
+      <label class="switch"><input type="checkbox" role="switch" aria-label="Find my device" checked={prefs.ring_in} onchange={(e) => save({ ring_in: e.currentTarget.checked })} /><i></i></label>
+    </div>
+    <div class="row">
+      <div class="grow"><div class="name">Notifications</div><div class="sub">Show notifications mirrored from your phone.</div></div>
+      <label class="switch"><input type="checkbox" role="switch" aria-label="Notifications" checked={prefs.notifications_in} onchange={(e) => save({ notifications_in: e.currentTarget.checked })} /><i></i></label>
+    </div>
+    <div class="sub" style="padding:14px 20px 4px;font-weight:600">Phones</div>
+    <div class="row">
+      <div class="grow"><div class="name">Phone calls</div><div class="sub">Dial through a phone and see who is calling.</div></div>
+      <label class="switch"><input type="checkbox" role="switch" aria-label="Phone calls" checked={prefs.phone_calls} onchange={(e) => save({ phone_calls: e.currentTarget.checked })} /><i></i></label>
+    </div>
+    <div class="row">
+      <div class="grow"><div class="name">Text messages</div><div class="sub">Read and answer a phone’s SMS here.</div></div>
+      <label class="switch"><input type="checkbox" role="switch" aria-label="Text messages" checked={prefs.sms} onchange={(e) => save({ sms: e.currentTarget.checked })} /><i></i></label>
     </div>
   {/if}
 </section>

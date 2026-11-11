@@ -22,7 +22,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Call
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.ContentPaste
 import androidx.compose.material.icons.outlined.InsertDriveFile
@@ -91,9 +90,6 @@ fun DevicePage(c: Contact, say: (String) -> Unit) {
     fun can(cap: String) = cap in c.caps && (c.online || (!c.direct && cap !in live))
     val canSend = can("files") || can("clipboard")
 
-    val askMic = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { ok ->
-        if (ok) scope.launch { try { CallEngine.start(c) } catch (e: Throwable) { say(e.message ?: "Could not call") } } else say("Allow the microphone to make calls")
-    }
     val pickFiles = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
         for (u in uris) staged.add(Staged("file", queryName(ctx, u) ?: "file", "ready to send", uri = u))
     }
@@ -263,17 +259,6 @@ fun DevicePage(c: Contact, say: (String) -> Unit) {
 
         // ── tools
         item {
-            Row(Modifier.fillMaxWidth().padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Outlined.Call, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                Spacer(Modifier.width(14.dp))
-                Column(Modifier.weight(1f)) {
-                    Text("Voice call", style = MaterialTheme.typography.titleSmall)
-                    Text(if (can("calls")) "Talk to the person at this device" else "Not allowed or not reachable", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-                OutlinedButton(enabled = can("calls") && CallEngine.state == "idle", onClick = {
-                    if (CallEngine.hasMic(ctx)) scope.launch { try { CallEngine.start(c) } catch (e: Throwable) { say(e.message ?: "Could not call") } } else askMic.launch(android.Manifest.permission.RECORD_AUDIO)
-                }) { Text("Call") }
-            }
             Row(Modifier.fillMaxWidth().padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Outlined.NotificationsActive, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
                 Spacer(Modifier.width(14.dp))

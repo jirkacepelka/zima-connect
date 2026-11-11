@@ -30,12 +30,6 @@ class ZimaConnectApp : Application() {
                 description = "Shown while this phone is ringing because you asked to find it"
             },
         )
-        nm.createNotificationChannel(
-            NotificationChannel(CH_CALL, "Calls", NotificationManager.IMPORTANCE_HIGH).apply {
-                description = "Incoming voice calls from your devices"
-                setSound(null, null)
-            },
-        )
         // Start the Rust node as early as possible; the UI and service wait for it.
         scope.launch { AppModel.start(applicationContext) }
     }
@@ -44,6 +38,5 @@ class ZimaConnectApp : Application() {
         const val CH_SERVICE = "service"
         const val CH_EVENTS = "events"
         const val CH_RING = "ring"
-        const val CH_CALL = "call"
     }
 }

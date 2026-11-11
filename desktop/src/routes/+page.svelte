@@ -6,13 +6,15 @@
   import AddDevice from '$lib/AddDevice.svelte';
   import DeviceView from '$lib/DeviceView.svelte';
   import Home from '$lib/Home.svelte';
-  import CallOverlay from '$lib/CallOverlay.svelte';
+  import PhoneOverlay from '$lib/PhoneOverlay.svelte';
   import MessagesView from '$lib/MessagesView.svelte';
-  import { wireCalls } from '$lib/call.svelte';
+  import { wirePhone } from '$lib/phone.svelte';
+  import { loadPrefs } from '$lib/prefs.svelte';
   import SettingsView from '$lib/SettingsView.svelte';
   import HouseholdView from '$lib/HouseholdView.svelte';
   import UpdateDialog from '$lib/UpdateDialog.svelte';
-  import { api, errText, type Activity, type Contact, type Household, type UpdateInfo } from '$lib/api';
+  import { api, errText, type Activity, type Contact, type Household, type LsIncoming, type LsPeer, type UpdateInfo } from '$lib/api';
+  import { size } from '$lib/devices';
 
   type View = 'home' | 'device' | 'messages' | 'activity' | 'people' | 'settings';
 
@@ -56,6 +58,22 @@
   /** The device card under the cursor while files are dragged over the window. */
   let overId = $state<string | null>(null);
 
+  // LocalSend devices nearby, and files they want to send here.
+  let nearby = $state<LsPeer[]>([]);
+  let incoming = $state<LsIncoming | null>(null);
+  async function decideIncoming(accept: boolean) {
+    const i = incoming;
+    incoming = null;
+    if (!i) return;
+    try {
+      await api.lsDecide(i.session, accept);
+      if (accept) say('Receiving…');
+    } catch (e) {
+      say(errText(e), true);
+    }
+  }
+  const totalSize = (i: LsIncoming) => size(i.files.reduce((n, f) => n + f.size, 0));
+
   function deviceAt(pos: { x: number; y: number }): string | null {
     const r = window.devicePixelRatio || 1;
     const el = document.elementFromPoint(pos.x / r, pos.y / r);
@@ -89,6 +107,7 @@
       household = await api.household();
       activities = await api.activities();
       contacts = await api.contacts();
+      nearby = await api.lsPeers().catch(() => []);
       identity = await api.identity();
       if (!selectedId && contacts.length) selectedId = contacts[0].id;
     } catch (e) {
@@ -100,7 +119,15 @@
 
   onMount(() => {
     refresh();
-    wireCalls().catch(() => {});
+    loadPrefs();
+    wirePhone().catch(() => {});
+    const unlistenLs: (() => void)[] = [];
+    import('@tauri-apps/api/event')
+      .then(async ({ listen }) => {
+        unlistenLs.push(await listen<LsIncoming>('ls-incoming', (e) => (incoming = e.payload)));
+        unlistenLs.push(await listen('ls-done', () => refresh()));
+      })
+      .catch(() => {});
     const firstCheck = setTimeout(checkUpdate, 8000);
     const updatePoll = setInterval(checkUpdate, 6 * 3600 * 1000);
     const poll = setInterval(refresh, 5000);
@@ -136,6 +163,7 @@
       clearInterval(tick);
       clearInterval(ringPoll);
       unlisten?.();
+      unlistenLs.forEach((u) => u());
       stopBeeping();
     };
   });
@@ -335,7 +363,7 @@
       {:else if view === 'settings'}
         <SettingsView name={identity?.name ?? ''} {household} {say} onRenamed={(n) => identity && (identity = { ...identity, name: n })} onAddDevice={() => (addOpen = household ? 'show' : 'server')} onLeave={() => (leaving = true)} onCheckUpdate={() => checkUpdate(true)} />
       {:else if view === 'home'}
-        <Home {contacts} {household} {activities} {dragging} {overId} {now} {say} onOpenDevice={(id) => go('device', id)} onAdd={() => (addOpen = household ? 'show' : 'server')} onShowActivity={() => go('activity')} onlistenDrop={(h) => (dropHandler = h)} onReveal={(p) => api.reveal(p)} />
+        <Home {contacts} {household} {activities} {nearby} {dragging} {overId} {now} {say} onOpenDevice={(id) => go('device', id)} onAdd={() => (addOpen = household ? 'show' : 'server')} onShowActivity={() => go('activity')} onlistenDrop={(h) => (dropHandler = h)} onReveal={(p) => api.reveal(p)} onRefresh={refresh} />
       {:else if view === 'activity'}
         <div class="title-row"><div><h1>Activity</h1><div class="finding">What was sent and received on this computer.</div></div></div>
         <section class="card">
@@ -378,7 +406,22 @@
   </main>
 </div>
 
-<CallOverlay />
+{#if incoming}
+  <Dialog title="Incoming files" onclose={() => decideIncoming(false)}>
+    <p class="lead"><b>{incoming.from} wants to send you {incoming.files.length === 1 ? 'a file' : `${incoming.files.length} files`}</b></p>
+    <ul class="files">
+      {#each incoming.files.slice(0, 6) as f (f.id)}<li>{f.name} <span class="sub num">{size(f.size)}</span></li>{/each}
+      {#if incoming.files.length > 6}<li class="sub">and {incoming.files.length - 6} more</li>{/if}
+    </ul>
+    <div class="sub">{totalSize(incoming)} in total. Sent with LocalSend.</div>
+    <div class="actions">
+      <button class="btn btn-secondary" onclick={() => decideIncoming(false)}>Decline</button>
+      <button class="btn btn-primary" onclick={() => decideIncoming(true)}>Accept</button>
+    </div>
+  </Dialog>
+{/if}
+
+<PhoneOverlay />
 
 {#if updateOpen && update}
   <UpdateDialog info={update} {say} onclose={() => (updateOpen = false)} />
@@ -435,6 +478,18 @@
 {/if}
 
 <style>
+  .files {
+    list-style: none;
+    margin: 0 0 8px;
+    padding: 0;
+    display: grid;
+    gap: 4px;
+  }
+  .files li {
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+  }
   .app {
     display: grid;
     grid-template-columns: 248px 1fr;

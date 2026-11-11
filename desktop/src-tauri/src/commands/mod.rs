@@ -8,7 +8,7 @@ use tauri_plugin_clipboard_manager::ClipboardExt;
 use tauri_plugin_dialog::DialogExt;
 
 use tauri_plugin_autostart::ManagerExt;
-use zima_connect_net::{AdminOp, SmsOp, Contact, Delivery, HouseholdInfo, RemoteInput, ShelfItem, Snapshot};
+use zima_connect_net::{AdminOp, PhoneOp, SmsOp, Contact, Delivery, HouseholdInfo, RemoteInput, ShelfItem, Snapshot};
 
 use crate::settings::{self, Settings};
 
@@ -72,6 +72,33 @@ pub fn open_external(url: String) -> Result<(), String> {
     open::that(url).map_err(|e| e.to_string())
 }
 
+/// Open the system's Bluetooth settings, to connect a phone as a headset.
+#[tauri::command]
+pub fn bluetooth_settings() -> Result<(), String> {
+    #[cfg(windows)]
+    {
+        open::that("ms-settings:bluetooth").map_err(|e| e.to_string())
+    }
+    #[cfg(target_os = "linux")]
+    {
+        use std::process::Command;
+        for (cmd, args) in [
+            ("gnome-control-center", vec!["bluetooth"]),
+            ("systemsettings", vec!["kcm_bluetooth"]),
+            ("blueman-manager", vec![]),
+        ] {
+            if Command::new(cmd).args(&args).spawn().is_ok() {
+                return Ok(());
+            }
+        }
+        Err("Open your system's Bluetooth settings and connect the phone there".into())
+    }
+    #[cfg(not(any(windows, target_os = "linux")))]
+    {
+        Err("Open your system's Bluetooth settings and connect the phone there".into())
+    }
+}
+
 #[tauri::command]
 pub fn app_version(app: AppHandle) -> String {
     app.package_info().version.to_string()
@@ -89,46 +116,20 @@ pub async fn install_update(info: crate::updater::UpdateInfo, app: AppHandle) ->
     crate::updater::install(app, info).await
 }
 
-/// Call a device. Returns the call id; progress arrives as `call-event` events.
+/// Use a phone's line: { op: "dial", number } | "answer" | "decline" | "hang_up" | { op: "mute", on } | "state".
 #[tauri::command]
-pub async fn call_start(peer_id: String, state: State<'_, SharedState>) -> Result<u64, String> {
+pub async fn phone_op(peer_id: String, op: PhoneOp, state: State<'_, SharedState>) -> Result<serde_json::Value, String> {
     let name = peer_name(&state, &peer_id);
-    match state.node.call_start(&peer_id).await {
-        Ok(id) => {
-            state.log("call", "Calling", name, true, None);
-            Ok(id)
+    let dialed = if let PhoneOp::Dial { number } = &op { Some(number.clone()) } else { None };
+    match state.node.phone(&peer_id, op).await {
+        Ok(v) => {
+            if let Some(n) = dialed {
+                state.log("call", "Calling", format!("{n} through {name}"), true, None);
+            }
+            Ok(v)
         }
         Err(e) => Err(format!("{e:#}")),
     }
-}
-
-#[tauri::command]
-pub fn call_accept(call_id: u64, state: State<'_, SharedState>) -> Result<(), String> {
-    state.node.call_accept(call_id).map_err(|e| format!("{e:#}"))
-}
-
-#[tauri::command]
-pub fn call_decline(call_id: u64, state: State<'_, SharedState>) -> Result<(), String> {
-    state.node.call_decline(call_id).map_err(|e| format!("{e:#}"))
-}
-
-#[tauri::command]
-pub fn call_hangup(call_id: u64, state: State<'_, SharedState>) {
-    state.node.call_hangup(call_id);
-}
-
-/// One 20 ms audio frame (PCM16 mono 16 kHz, base64) from the microphone.
-#[tauri::command]
-pub fn call_send(call_id: u64, data: String, state: State<'_, SharedState>) -> Result<(), String> {
-    use base64::Engine;
-    let bytes = base64::engine::general_purpose::STANDARD.decode(data).map_err(|e| e.to_string())?;
-    state.node.call_send(call_id, bytes).map_err(|e| format!("{e:#}"))
-}
-
-/// The call this computer is in right now, if any: (id, peer name, outgoing).
-#[tauri::command]
-pub fn call_active(state: State<'_, SharedState>) -> Option<(u64, String, bool)> {
-    state.node.active_call().map(|(id, _, name, out)| (id, name, out))
 }
 
 /// The conversations of a phone's text messages.
@@ -165,7 +166,47 @@ pub async fn set_my_color(hue: u16, state: State<'_, SharedState>) -> Result<(),
 #[tauri::command]
 pub async fn rename_device(name: String, state: State<'_, SharedState>) -> Result<String, String> {
     state.node.rename_device(&name).await.map_err(|e| format!("{e:#}"))?;
+    state.localsend.set_alias(&state.node.device_name());
     Ok(state.node.device_name())
+}
+
+/// LocalSend devices nearby.
+#[tauri::command]
+pub fn ls_peers(state: State<'_, SharedState>) -> Vec<zima_connect_net::localsend::Peer> {
+    state.localsend.peers()
+}
+
+/// Send files to a LocalSend device (it asks its user first).
+#[tauri::command]
+pub async fn ls_send(fingerprint: String, paths: Vec<String>, state: State<'_, SharedState>) -> Result<(), String> {
+    let peer = state
+        .localsend
+        .peers()
+        .into_iter()
+        .find(|p| p.fingerprint == fingerprint)
+        .ok_or("That device is no longer nearby")?;
+    let files: Vec<PathBuf> = paths.into_iter().map(PathBuf::from).filter(|p| p.is_file()).collect();
+    if files.is_empty() {
+        return Err("Folders cannot be sent yet. Choose files instead.".into());
+    }
+    let label = if files.len() == 1 {
+        files[0].file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()
+    } else {
+        format!("{} files", files.len())
+    };
+    match state.localsend.send(&peer, &files).await {
+        Ok(()) => {
+            state.log("file", format!("Sent {label}"), format!("to {} with LocalSend", peer.alias), true, None);
+            Ok(())
+        }
+        Err(e) => Err(format!("{e:#}")),
+    }
+}
+
+/// Accept or decline files a LocalSend device wants to send here.
+#[tauri::command]
+pub fn ls_decide(session: String, accept: bool, state: State<'_, SharedState>) -> Result<(), String> {
+    state.localsend.decide(&session, accept).map_err(|e| format!("{e:#}"))
 }
 
 #[tauri::command]
@@ -181,6 +222,7 @@ pub fn set_settings(new: Settings, app: AppHandle, state: State<'_, SharedState>
         let r = if new.autostart { launch.enable() } else { launch.disable() };
         r.map_err(|e| e.to_string())?;
     }
+    state.localsend.set_visible(new.localsend);
     settings::save(&state.data_dir, &new);
     *state.settings.lock().unwrap() = new.clone();
     Ok(new)

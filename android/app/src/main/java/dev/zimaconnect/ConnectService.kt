@@ -71,6 +71,22 @@ class ConnectService : Service() {
                         delay(5 * 60_000L)
                     }
                 }
+                // LocalSend: be found by, and send to, LocalSend users on the same network.
+                launch {
+                    runCatching {
+                        getSystemService(android.net.wifi.WifiManager::class.java)
+                            .createMulticastLock("zc-localsend").apply { setReferenceCounted(false); acquire() }
+                    }
+                    val base = File(filesDir, "zc").apply { mkdirs() }
+                    val dl = (getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS) ?: File(filesDir, "downloads")).apply { mkdirs() }
+                    runCatching {
+                        Api.call("ls_start", Api.args("data_dir" to base.absolutePath, "download_dir" to dl.absolutePath, "device_name" to AppModel.deviceName))
+                    }.onFailure { return@launch }
+                    while (isActive) {
+                        val ev = runCatching { Api.call("ls_event") as? JSONObject }.onFailure { delay(3_000) }.getOrNull() ?: continue
+                        runCatching { handleLs(ev) }
+                    }
+                }
                 while (isActive) {
                     val raw = Native.nextEvent(30_000)
                     if (raw.isNotEmpty()) runCatching { handle(JSONObject(raw)) }
@@ -97,6 +113,19 @@ class ConnectService : Service() {
             .setOngoing(true)
             .setSilent(true)
             .build()
+    }
+
+    private fun handleLs(ev: JSONObject) {
+        when (ev.optString("kind")) {
+            "incoming" -> LocalSendBridge.ask(this, ev, nextId++)
+            "received" -> {
+                val name = ev.getString("name")
+                val from = ev.getString("from")
+                val shown = saveToDownloads(File(ev.getString("path")), name)
+                AppModel.log("file", "Received $name", "from $from with LocalSend · $shown")
+                notify("File from $from", "$name saved in $shown")
+            }
+        }
     }
 
     private suspend fun handle(ev: JSONObject) {
@@ -133,8 +162,10 @@ class ConnectService : Service() {
                 val reply = SmsBridge.answer(applicationContext, ev.getJSONObject("op"))
                 runCatching { Api.call("sms_reply", Api.args("call_id" to ev.getLong("req_id"), "value" to reply)) }
             }
-            "call_incoming" -> CallEngine.onIncoming(applicationContext, ev.getLong("call_id"), ev.getString("from_name"))
-            "call_state" -> CallEngine.onState(applicationContext, ev.getLong("call_id"), ev.getString("state"), ev.optString("peer_name"))
+            "phone_request" -> {
+                val reply = PhoneBridge.answer(applicationContext, ev.getJSONObject("op"))
+                runCatching { Api.call("phone_reply", Api.args("call_id" to ev.getLong("req_id"), "value" to reply)) }
+            }
             "open_url" -> {
                 val from = ev.getString("from_name")
                 val url = ev.getString("url")

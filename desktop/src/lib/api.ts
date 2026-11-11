@@ -1,13 +1,14 @@
 import { invoke } from '@tauri-apps/api/core';
 
 export type Delivery = 'delivered' | 'queued';
+export type PhoneOp = { op: 'dial'; number: string } | { op: 'answer' } | { op: 'decline' } | { op: 'hang_up' } | { op: 'mute'; on: boolean } | { op: 'state' };
 export type Cap = 'files' | 'clipboard' | 'notifications' | 'ring' | 'calls' | 'remote' | 'status' | 'sms';
 export const CAPS: { id: Cap; label: string; hint: string }[] = [
   { id: 'files', label: 'Files and photos', hint: 'Send files' },
   { id: 'clipboard', label: 'Clipboard', hint: 'Send clipboard text' },
   { id: 'notifications', label: 'Notifications', hint: 'Show notifications' },
   { id: 'ring', label: 'Find my device', hint: 'Make the device ring' },
-  { id: 'calls', label: 'Voice calls', hint: 'Call the device' },
+  { id: 'calls', label: 'Phone calls', hint: 'Dial and answer through a phone' },
   { id: 'remote', label: 'Remote control', hint: 'Touchpad, keyboard and media keys' },
   { id: 'status', label: 'Battery and status', hint: 'See the battery level' },
   { id: 'sms', label: 'Text messages', hint: 'Read and send SMS of a phone' }
@@ -52,7 +53,9 @@ export type UpdateInfo = {
 };
 export type SmsThread = { id: string; address: string; name: string | null; snippet: string; date: number; unread: boolean };
 export type SmsMessage = { id: string; address: string; body: string; date: number; outgoing: boolean };
-export type Settings = { background: boolean; autostart: boolean; allow_remote: boolean };
+export type Settings = { background: boolean; autostart: boolean; allow_remote: boolean; localsend: boolean; clipboard_in: boolean; links_in: boolean; ring_in: boolean; notifications_in: boolean; phone_calls: boolean; sms: boolean; show_shelf: boolean; show_send: boolean; show_activity: boolean };
+export type LsPeer = { fingerprint: string; alias: string; model: string | null; device_type: string; ip: string; port: number; https: boolean };
+export type LsIncoming = { session: string; from: string; files: { id: string; name: string; size: number }[] };
 export type RemoteInput =
   | { k: 'move'; dx: number; dy: number }
   | { k: 'click'; button: 'left' | 'right' | 'middle' | 'double' }
@@ -119,7 +122,11 @@ export const api = {
   smsThreads: (peerId: string) => invoke<SmsThread[]>('sms_threads', { peerId }),
   smsThread: (peerId: string, id: string) => invoke<SmsMessage[]>('sms_thread', { peerId, id }),
   smsSend: (peerId: string, to: string, body: string) => invoke<void>('sms_send', { peerId, to, body }),
-  callActive: () => invoke<[number, string, boolean] | null>('call_active'),
+  phoneOp: (peerId: string, op: PhoneOp) => invoke<unknown>('phone_op', { peerId, op }),
+  lsPeers: () => invoke<LsPeer[]>('ls_peers'),
+  lsSend: (fingerprint: string, paths: string[]) => invoke<void>('ls_send', { fingerprint, paths }),
+  lsDecide: (session: string, accept: boolean) => invoke<void>('ls_decide', { session, accept }),
+  bluetoothSettings: () => invoke<void>('bluetooth_settings'),
   setMyColor: (hue: number) => invoke<void>('set_my_color', { hue }),
   renameDevice: (name: string) => invoke<string>('rename_device', { name }),
   settings: () => invoke<Settings>('get_settings'),

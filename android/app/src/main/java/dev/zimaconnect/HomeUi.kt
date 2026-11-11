@@ -184,6 +184,64 @@ fun HomePage(onOpen: (String) -> Unit, onAdd: () -> Unit, onHousehold: () -> Uni
         }
     }
 
+    var tab by remember { mutableStateOf("shelf") }
+    var outgoing by remember { mutableStateOf<Pair<File, String>?>(null) }
+    val pickSend = rememberLauncherForFile { uri ->
+        scope.launch {
+            try {
+                outgoing = copyToCache(ctx, uri)
+            } catch (e: Throwable) {
+                say(e.message ?: "Could not read the file")
+            }
+        }
+    }
+    outgoing?.let { (file, label) ->
+        AlertDialog(
+            onDismissRequest = { file.delete(); outgoing = null },
+            title = { Text("Send $label to…") },
+            text = {
+                Column {
+                    contacts.forEach { c ->
+                        TextButton(onClick = {
+                            outgoing = null
+                            scope.launch {
+                                try {
+                                    AppModel.sendFile(c, file, label)
+                                    say("Sent to ${c.name}")
+                                } catch (e: Throwable) {
+                                    say(e.message ?: "Could not send")
+                                } finally {
+                                    file.delete()
+                                }
+                            }
+                        }) { Text(c.name) }
+                    }
+                    if (AppModel.nearby.isNotEmpty()) {
+                        Text("Nearby, with LocalSend", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        AppModel.nearby.forEach { p ->
+                            TextButton(onClick = {
+                                outgoing = null
+                                scope.launch {
+                                    say("Waiting for ${p.alias} to accept…")
+                                    try {
+                                        AppModel.sendNearby(p, file, label)
+                                        say("Sent to ${p.alias}")
+                                    } catch (e: Throwable) {
+                                        say(e.message ?: "Could not send")
+                                    } finally {
+                                        file.delete()
+                                    }
+                                }
+                            }) { Text(p.alias) }
+                        }
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = { TextButton(onClick = { file.delete(); outgoing = null }) { Text("Cancel") } },
+        )
+    }
+
     val people = contacts.filter { !it.mine && it.userName != null }.mapNotNull { it.userName }.distinct()
     val shown = contacts.filter {
         when (filter) {
@@ -204,16 +262,35 @@ fun HomePage(onOpen: (String) -> Unit, onAdd: () -> Unit, onHousehold: () -> Uni
             )
         }
 
-        // ── shelf
+        // ── shelf and send: the main part of the page
         item {
-            SectionTitle("Your shelf") {
-                TextButton(onClick = { pick() }, enabled = household != null && !uploading) {
-                    Icon(Icons.Outlined.Add, null, Modifier.size(18.dp))
-                    Spacer(Modifier.width(6.dp))
-                    Text(if (uploading) "Uploading…" else "Add files")
+          Column(Modifier.fillMaxWidth().border(1.5.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(22.dp)).padding(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 12.dp)) {
+                FilterChip(selected = tab == "shelf", onClick = { tab = "shelf" }, label = { Text("Shelf") })
+                Spacer(Modifier.width(8.dp))
+                FilterChip(selected = tab == "send", onClick = { tab = "send" }, label = { Text("Send") })
+                Spacer(Modifier.weight(1f))
+                if (tab == "shelf") {
+                    TextButton(onClick = { pick() }, enabled = household != null && !uploading) {
+                        Icon(Icons.Outlined.Add, null, Modifier.size(18.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text(if (uploading) "Uploading…" else "Add files")
+                    }
                 }
             }
-            if (household == null) {
+            if (tab == "send") {
+                Column(
+                    Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).border(1.5.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(14.dp)).clickable { pickSend() }.padding(28.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Text("Choose a file to send", style = MaterialTheme.typography.titleSmall)
+                    Text(
+                        "Then pick which device gets it. Devices nearby with LocalSend are there too.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            } else if (household == null) {
                 Text(
                     "The shelf lives on your Zima Connect server. Join the server first.",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -242,6 +319,7 @@ fun HomePage(onOpen: (String) -> Unit, onAdd: () -> Unit, onHousehold: () -> Uni
                     }
                 }
             }
+          }
         }
 
         // ── devices

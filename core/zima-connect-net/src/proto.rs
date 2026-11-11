@@ -22,6 +22,24 @@ pub enum SmsOp {
     },
 }
 
+/// What another device asks of a phone's line.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "op", rename_all = "snake_case")]
+pub enum PhoneOp {
+    /// Place a call to this number.
+    Dial { number: String },
+    /// Pick up the ringing call.
+    Answer,
+    /// Turn the ringing call down.
+    Decline,
+    /// End the current call.
+    HangUp,
+    /// Mute or unmute the phone's microphone.
+    Mute { on: bool },
+    /// Ask what the line is doing right now.
+    State,
+}
+
 /// Things one device can do on another by remote control.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "k", rename_all = "snake_case")]
@@ -78,9 +96,16 @@ pub enum Request {
         name: Option<String>,
         body: String,
     },
-    /// Start a voice call. The reply (accepted or not) comes when the other person answers;
-    /// after `Ok` the same stream carries audio frames both ways.
-    Call,
+    /// Use a phone's line (dial, answer, hang up); the phone's app answers.
+    Phone {
+        op: PhoneOp,
+    },
+    /// A phone tells its owner's other devices that its call state changed.
+    PhonePush {
+        state: String,
+        number: String,
+        name: Option<String>,
+    },
     /// Open a link on the other device.
     OpenUrl {
         url: String,

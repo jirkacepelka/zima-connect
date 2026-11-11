@@ -15,6 +15,7 @@ use tauri::{Emitter, Manager, WindowEvent};
 use tauri_plugin_autostart::ManagerExt;
 use tauri_plugin_clipboard_manager::ClipboardExt;
 use tauri_plugin_notification::NotificationExt;
+use zima_connect_net::localsend::{self, LocalSend, LsEvent};
 use zima_connect_net::{Event, Node, NodeConfig};
 
 use state::AppState;
@@ -70,6 +71,7 @@ fn main() {
             let prefs = settings::load(&cfg.data_dir);
             let first_run = !settings::path(&cfg.data_dir).exists();
             let data_dir_copy = cfg.data_dir.clone();
+            let download_dir_copy = cfg.download_dir.clone();
             // Previews of shelf files are served from the cache folder through the asset protocol.
             let _ = app.asset_protocol_scope().allow_directory(cfg.data_dir.join("shelf-cache"), true);
             let node = tauri::async_runtime::block_on(Node::start(cfg))
@@ -80,7 +82,50 @@ fn main() {
                     let _ = app.autolaunch().enable();
                 }
             }
-            let state = Arc::new(AppState::new(node.clone(), data_dir_copy, prefs));
+            // LocalSend: the open protocol other apps (LocalSend on phones and computers) speak.
+            let ls_cfg = |port: u16| localsend::Config {
+                data_dir: data_dir_copy.clone(),
+                receive_dir: download_dir_copy.clone(),
+                alias: node.device_name(),
+                model: std::env::consts::OS.to_string(),
+                device_type: "desktop".into(),
+                port,
+                discovery: true,
+            };
+            // The official app may already hold the usual port: then take any free one.
+            let ls = tauri::async_runtime::block_on(async {
+                match LocalSend::start(ls_cfg(localsend::PORT)).await {
+                    Ok(l) => Ok(l),
+                    Err(_) => LocalSend::start(ls_cfg(0)).await,
+                }
+            })
+            .map_err(|e| format!("could not start LocalSend: {e:#}"))?;
+            ls.set_visible(prefs.localsend);
+            let state = Arc::new(AppState::new(node.clone(), ls.clone(), data_dir_copy, prefs));
+            {
+                let handle = app.handle().clone();
+                let state = state.clone();
+                let mut rx = ls.subscribe();
+                tauri::async_runtime::spawn(async move {
+                    while let Ok(ev) = rx.recv().await {
+                        match ev {
+                            LsEvent::Incoming { session, from, files } => {
+                                show_main(&handle);
+                                let n = files.len();
+                                let _ = handle.notification().builder().title(format!("{from} wants to send you {} file{}", n, if n == 1 { "" } else { "s" })).body("Open Zima Connect to accept or decline").show();
+                                let _ = handle.emit("ls-incoming", serde_json::json!({ "session": session, "from": from, "files": files }));
+                            }
+                            LsEvent::Received { from, name, path, size } => {
+                                state.log("file", format!("Received {name}"), format!("from {from} with LocalSend ({} KB)", size / 1024), true, Some(path));
+                                let _ = handle.emit("ls-done", ());
+                            }
+                            LsEvent::Done { .. } => {
+                                let _ = handle.emit("ls-done", ());
+                            }
+                        }
+                    }
+                });
+            }
             app.manage(state.clone());
 
             // Tray: Zima Connect keeps running in the background.
@@ -119,6 +164,7 @@ fn main() {
                 while let Ok(ev) = rx.recv().await {
                     match ev {
                         Event::Clipboard { from_name, text, .. } => {
+                            if !state.settings.lock().unwrap().clipboard_in { continue; }
                             let _ = handle.clipboard().write_text(text.clone());
                             state.log(
                                 "clipboard",
@@ -144,41 +190,26 @@ fn main() {
                                 .show();
                         }
                         Event::SmsReceived { from_name, address, name, body, .. } => {
+                            if !state.settings.lock().unwrap().sms { continue; }
                             let who = name.unwrap_or(address);
                             state.log("sms", format!("Text message from {who}"), format!("on {from_name}"), true, None);
                             let _ = handle.notification().builder().title(format!("{who} · {from_name}")).body(body).show();
                             let _ = handle.emit("sms-received", ());
                         }
                         Event::SmsRequest { .. } => {}
-                        Event::CallIncoming { call_id, from, from_name } => {
-                            state.log("call", "Incoming call", from_name.clone(), true, None);
-                            show_main(&handle);
-                            let _ = handle
-                                .notification()
-                                .builder()
-                                .title("Zima Connect")
-                                .body(format!("{from_name} is calling"))
-                                .show();
-                            let _ = handle.emit("call-event", serde_json::json!({ "kind": "incoming", "call_id": call_id, "from": from, "peer": from_name }));
-                        }
-                        Event::CallState { call_id, state: st, peer_name } => {
-                            if st == "connected" {
-                                // Pull the other side's audio and hand it to the window to play.
-                                let node = state.node.clone();
-                                let h = handle.clone();
-                                tauri::async_runtime::spawn(async move {
-                                    use base64::Engine;
-                                    while let Some(d) = node.call_recv(call_id).await {
-                                        let _ = h.emit("call-audio", (call_id, base64::engine::general_purpose::STANDARD.encode(d)));
-                                    }
-                                });
+                        Event::PhoneRequest { .. } => {}
+                        Event::PhoneState { from, from_name, state: st, number, name } => {
+                            if !state.settings.lock().unwrap().phone_calls { continue; }
+                            let who = name.clone().unwrap_or_else(|| number.clone());
+                            if st == "ringing" {
+                                state.log("call", format!("Call from {who}"), format!("on {from_name}"), true, None);
+                                show_main(&handle);
+                                let _ = handle.notification().builder().title(format!("{who} is calling")).body(format!("on {from_name}")).show();
                             }
-                            if matches!(st.as_str(), "ended" | "declined" | "busy" | "unreachable") {
-                                state.log("call", format!("Call {st}"), peer_name.clone(), st == "ended", None);
-                            }
-                            let _ = handle.emit("call-event", serde_json::json!({ "kind": "state", "call_id": call_id, "state": st, "peer": peer_name }));
+                            let _ = handle.emit("phone-state", serde_json::json!({ "from": from, "from_name": from_name, "state": st, "number": number, "name": name }));
                         }
                         Event::OpenUrl { from_name, url, .. } => {
+                            if !state.settings.lock().unwrap().links_in { continue; }
                             state.log("link", "Link opened", format!("from {from_name}"), true, None);
                             let _ = open::that(&url);
                         }
@@ -191,6 +222,7 @@ fn main() {
                             }
                         }
                         Event::Ring { from_name, .. } => {
+                            if !state.settings.lock().unwrap().ring_in { continue; }
                             state.log("ring", "Found by device", from_name.clone(), true, None);
                             *state.ringing.lock().unwrap() = Some((from_name.clone(), std::time::Instant::now()));
                             if let Some(w) = handle.get_webview_window("main") {
@@ -209,6 +241,7 @@ fn main() {
                             *state.ringing.lock().unwrap() = None;
                         }
                         Event::Notification { from_name, app, title, body, .. } => {
+                            if !state.settings.lock().unwrap().notifications_in { continue; }
                             state.log("notification", format!("{app}: {title}"), format!("from {from_name}"), true, None);
                             let _ = handle.notification().builder().title(format!("{title} · {from_name}")).body(body).show();
                         }
@@ -244,14 +277,13 @@ fn main() {
             commands::sms_threads,
             commands::sms_thread,
             commands::sms_send,
-            commands::call_start,
-            commands::call_accept,
-            commands::call_decline,
-            commands::call_hangup,
-            commands::call_send,
-            commands::call_active,
+            commands::phone_op,
             commands::app_version,
             commands::open_external,
+            commands::ls_peers,
+            commands::ls_send,
+            commands::ls_decide,
+            commands::bluetooth_settings,
             commands::check_update,
             commands::install_update,
             commands::get_settings,

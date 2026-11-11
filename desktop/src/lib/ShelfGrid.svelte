@@ -117,9 +117,8 @@
   }
 </script>
 
-<section class="shelf" class:over={dragging} aria-labelledby="h-shelf">
+<section class="shelf" class:over={dragging} aria-label="Your shelf">
   <div class="head">
-    <h2 id="h-shelf">Your shelf</h2>
     <span class="meta">Only you · reachable from all your devices</span>
     <button class="btn btn-secondary add" disabled={!household} onclick={() => put(() => api.shelfPut())}><Icon name="plus" size={15} /> Add files…</button>
   </div>
@@ -172,7 +171,7 @@
 
 <style>
   .shelf {
-    margin-bottom: 36px;
+    margin-bottom: 0;
     border-radius: 14px;
     transition: box-shadow 0.12s, background 0.12s;
   }
@@ -186,14 +185,11 @@
     gap: 12px;
     margin-bottom: 16px;
   }
-  .head h2 {
-    margin: 0;
-    font-size: 16px;
-    font-weight: 600;
-  }
   .head .meta {
     color: var(--muted);
     font-size: 13px;
+  }
+  .head .add {
     margin-left: auto;
   }
   .empty {

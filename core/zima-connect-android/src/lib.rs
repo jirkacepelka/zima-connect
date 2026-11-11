@@ -18,10 +18,13 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use tokio::runtime::Runtime;
 use tokio::sync::broadcast;
+use zima_connect_net::localsend::{self, LocalSend, LsEvent};
 use zima_connect_net::{AdminOp, Event, Node, NodeConfig, RemoteInput, SmsOp};
 
 static RT: OnceLock<Runtime> = OnceLock::new();
 static NODE: OnceLock<Node> = OnceLock::new();
+static LS: OnceLock<LocalSend> = OnceLock::new();
+static LS_EVENTS: OnceLock<tokio::sync::Mutex<broadcast::Receiver<LsEvent>>> = OnceLock::new();
 static EVENTS: OnceLock<Mutex<broadcast::Receiver<Event>>> = OnceLock::new();
 
 fn rt() -> &'static Runtime {
@@ -32,6 +35,10 @@ fn rt() -> &'static Runtime {
             .build()
             .expect("tokio runtime")
     })
+}
+
+fn ls() -> anyhow::Result<&'static LocalSend> {
+    LS.get().ok_or_else(|| anyhow::anyhow!("LocalSend is not running"))
 }
 
 fn node() -> anyhow::Result<&'static Node> {
@@ -79,6 +86,8 @@ struct Args {
     value: Option<Value>,
     #[serde(default)]
     charging: bool,
+    #[serde(default)]
+    accept: bool,
 }
 
 /// Run one API call. Public so it can be tested on the desktop.
@@ -118,6 +127,52 @@ async fn dispatch(method: &str, args_json: &str) -> anyhow::Result<Value> {
 
     let n = node()?;
     Ok(match method {
+        // LocalSend: show up for LocalSend users nearby and send to them.
+        "ls_start" => {
+            if LS.get().is_none() {
+                let cfg = |port: u16| localsend::Config {
+                    data_dir: PathBuf::from(&a.data_dir),
+                    receive_dir: PathBuf::from(&a.download_dir),
+                    alias: a.device_name.clone(),
+                    model: "Android".into(),
+                    device_type: "mobile".into(),
+                    port,
+                    discovery: true,
+                };
+                let ls = match LocalSend::start(cfg(localsend::PORT)).await {
+                    Ok(l) => l,
+                    Err(_) => LocalSend::start(cfg(0)).await?,
+                };
+                let _ = LS_EVENTS.set(tokio::sync::Mutex::new(ls.subscribe()));
+                let _ = LS.set(ls);
+            }
+            Value::Null
+        }
+        "ls_peers" => serde_json::to_value(ls()?.peers())?,
+        "ls_send" => {
+            let l = ls()?;
+            let peer = l
+                .peers()
+                .into_iter()
+                .find(|p| p.fingerprint == a.id)
+                .ok_or_else(|| anyhow::anyhow!("that device is no longer nearby"))?;
+            let paths: Vec<PathBuf> = a.path.split('\n').filter(|s| !s.is_empty()).map(PathBuf::from).collect();
+            l.send(&peer, &paths).await?;
+            Value::Null
+        }
+        "ls_decide" => {
+            ls()?.decide(&a.id, a.accept)?;
+            Value::Null
+        }
+        // Waits (up to 30 s) for the next LocalSend event; null when none came.
+        "ls_event" => {
+            let rx = LS_EVENTS.get().ok_or_else(|| anyhow::anyhow!("LocalSend is not running"))?;
+            let mut rx = rx.lock().await;
+            match tokio::time::timeout(Duration::from_secs(30), rx.recv()).await {
+                Ok(Ok(ev)) => serde_json::to_value(ev)?,
+                _ => Value::Null,
+            }
+        }
         "contacts" => serde_json::to_value(n.contacts())?,
         "household" => match (n.household_info(), n.household_snapshot()) {
             (Some(info), Some(snapshot)) => json!({ "info": info, "snapshot": snapshot }),
@@ -163,33 +218,16 @@ async fn dispatch(method: &str, args_json: &str) -> anyhow::Result<Value> {
             n.rename_device(&a.device_name).await?;
             Value::Null
         }
-        "call_start" => json!(n.call_start(&a.id).await?),
-        "call_accept" => {
-            n.call_accept(a.call_id)?;
+        // The phone answers a request another device made of its line.
+        "phone_reply" => {
+            n.phone_reply(a.call_id, a.value.unwrap_or(Value::Null))?;
             Value::Null
         }
-        "call_decline" => {
-            n.call_decline(a.call_id)?;
+        // The phone tells another device that its call state changed.
+        "phone_push" => {
+            n.phone_push(&a.id, &a.title, &a.path, a.user_name.clone())
+                .await?;
             Value::Null
-        }
-        "call_hangup" => {
-            n.call_hangup(a.call_id);
-            Value::Null
-        }
-        "call_send" => {
-            use base64::Engine;
-            let bytes = base64::engine::general_purpose::STANDARD.decode(&a.text)?;
-            n.call_send(a.call_id, bytes)?;
-            Value::Null
-        }
-        // Waits (up to 2 s) for the next audio frame; null when nothing came, "end" when the call is over.
-        "call_recv" => {
-            use base64::Engine;
-            match tokio::time::timeout(Duration::from_secs(2), n.call_recv(a.call_id)).await {
-                Ok(Some(d)) => json!(base64::engine::general_purpose::STANDARD.encode(d)),
-                Ok(None) => json!("end"),
-                Err(_) => Value::Null,
-            }
         }
         // The phone answers a question another device asked about its text messages.
         "sms_reply" => {

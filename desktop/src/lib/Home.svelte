@@ -1,13 +1,16 @@
 <script lang="ts">
   import Icon from '$lib/Icon.svelte';
   import ShelfGrid from '$lib/ShelfGrid.svelte';
+  import SendPanel from '$lib/SendPanel.svelte';
+  import { on } from '$lib/prefs.svelte';
   import DeviceCard from '$lib/DeviceCard.svelte';
-  import type { Activity, Contact, Household } from '$lib/api';
+  import type { Activity, Contact, Household, LsPeer } from '$lib/api';
 
   let {
     contacts,
     household,
     activities,
+    nearby,
     dragging,
     overId,
     now,
@@ -16,11 +19,13 @@
     onAdd,
     onShowActivity,
     onlistenDrop,
-    onReveal
+    onReveal,
+    onRefresh
   }: {
     contacts: Contact[];
     household: Household | null;
     activities: Activity[];
+    nearby: LsPeer[];
     dragging: boolean;
     overId: string | null;
     now: number;
@@ -30,7 +35,25 @@
     onShowActivity: () => void;
     onlistenDrop: (h: ((paths: string[]) => void) | null) => void;
     onReveal: (path: string) => void;
+    onRefresh: () => void;
   } = $props();
+
+  // The main part of Home: your shelf, or send something to a device.
+  let wanted = $state<'shelf' | 'send'>('shelf');
+  const tab = $derived(!on('show_send') ? 'shelf' : !on('show_shelf') ? 'send' : wanted);
+  try {
+    if (localStorage.getItem('zc-home-tab') === 'send') wanted = 'send';
+  } catch {
+    /* no storage */
+  }
+  function setTab(t: 'shelf' | 'send') {
+    wanted = t;
+    try {
+      localStorage.setItem('zc-home-tab', t);
+    } catch {
+      /* no storage */
+    }
+  }
 
   // Filter the devices: everything, mine, online, or one person's.
   let filter = $state('all');
@@ -66,7 +89,19 @@
   <div class="actions"><button class="btn btn-secondary" onclick={onAdd}><Icon name="plus" size={15} /> Add device</button></div>
 </div>
 
-<ShelfGrid {household} {dragging} {say} {onlistenDrop} />
+{#if on('show_shelf') || on('show_send')}
+<section class="deck" aria-label="Shelf and send">
+  {#if on('show_shelf') && on('show_send')}<div class="seg" role="tablist" aria-label="Shelf or send">
+    <button role="tab" aria-selected={tab === 'shelf'} class:on={tab === 'shelf'} onclick={() => setTab('shelf')}><Icon name="shelf" size={15} /> Shelf</button>
+    <button role="tab" aria-selected={tab === 'send'} class:on={tab === 'send'} onclick={() => setTab('send')}><Icon name="upload" size={15} /> Send</button>
+  </div>{/if}
+  {#if tab === 'shelf'}
+    <ShelfGrid {household} {dragging} {say} {onlistenDrop} />
+  {:else}
+    <SendPanel {contacts} {nearby} {dragging} {say} refresh={onRefresh} {onlistenDrop} />
+  {/if}
+</section>
+{/if}
 
 <section aria-labelledby="h-dev" class="block">
   <div class="head">
@@ -99,6 +134,7 @@
   {/if}
 </section>
 
+{#if on('show_activity')}
 <section aria-labelledby="h-act" class="block">
   <div class="head">
     <h2 id="h-act">Activity</h2>
@@ -117,10 +153,42 @@
     {/each}
   </div>
 </section>
+{/if}
 
 <style>
   .block {
     margin-bottom: 44px;
+  }
+  /* The main part of the page: set apart from everything below it. */
+  .deck {
+    margin-bottom: 52px;
+    padding: 18px 22px 22px;
+    border-radius: 22px;
+    background: var(--surface);
+    box-shadow: inset 0 0 0 1.5px var(--control), 0 6px 22px -14px rgb(0 0 0 / 0.35);
+  }
+  .seg {
+    display: inline-flex;
+    gap: 2px;
+    padding: 3px;
+    border-radius: 99px;
+    background: var(--active);
+    margin-bottom: 18px;
+  }
+  .seg button {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    height: 32px;
+    padding: 0 16px;
+    border-radius: 99px;
+    font-weight: 500;
+    color: var(--muted);
+  }
+  .seg button.on {
+    background: var(--surface);
+    color: var(--text);
+    box-shadow: 0 1px 3px rgb(0 0 0 / 0.18);
   }
   .head {
     display: flex;

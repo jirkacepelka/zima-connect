@@ -3,7 +3,8 @@
   import Icon from '$lib/Icon.svelte';
   import Mockup from '$lib/Mockup.svelte';
   import RemotePad from '$lib/RemotePad.svelte';
-  import { call, startCall } from '$lib/call.svelte';
+  import { dial } from '$lib/phone.svelte';
+  import { on } from '$lib/prefs.svelte';
   import { api, errText, type Cap, type Contact } from '$lib/api';
   import { PLATFORM, hueFor, kindOf, ownerName, size } from '$lib/devices';
 
@@ -38,6 +39,17 @@
   let draft = $state('');
   let sending = $state(false);
   let remoteOpen = $state(false);
+  let dialOpen = $state(false);
+  let number = $state('');
+  async function placeCall() {
+    try {
+      await dial(c.id, c.name, number);
+      dialOpen = false;
+      number = '';
+    } catch (e) {
+      say(errText(e), true);
+    }
+  }
 
   const hue = $derived(hueFor(c));
   const live: Cap[] = ['ring', 'remote', 'status', 'calls'];
@@ -205,18 +217,27 @@
 
 <section class="tools" aria-labelledby="h-tools">
   <h2 id="h-tools" class="sect">Tools</h2>
-  {#if c.platform === 'android'}
+  {#if c.platform === 'android' && on('sms')}
     <div class="row slim">
       <Icon name="clipboard" size={18} />
       <div class="grow"><div class="name">Text messages</div><div class="sub">{can('sms') ? 'Read and answer SMS' : why('sms')}</div></div>
       <button class="btn btn-secondary" disabled={!can('sms')} onclick={onMessages}>Open</button>
     </div>
   {/if}
-  <div class="row slim">
-    <Icon name="call" size={18} />
-    <div class="grow"><div class="name">Voice call</div><div class="sub">{can('calls') ? 'Talk to whoever is there' : why('calls')}</div></div>
-    <button class="btn btn-secondary" disabled={!can('calls') || call.state !== 'idle'} onclick={() => startCall(c.id, c.name).catch((e) => say(errText(e), true))}>Call</button>
-  </div>
+  {#if c.platform === 'android' && on('phone_calls')}
+    <div class="row slim">
+      <Icon name="call" size={18} />
+      <div class="grow"><div class="name">Phone call</div><div class="sub">{can('calls') ? 'Call a number through this phone' : why('calls')}</div></div>
+      <button class="btn btn-secondary" disabled={!can('calls')} aria-expanded={dialOpen} onclick={() => (dialOpen = !dialOpen)}>{dialOpen ? 'Hide' : 'Dial'}</button>
+    </div>
+    {#if dialOpen && can('calls')}
+      <form class="dial" onsubmit={(e) => { e.preventDefault(); placeCall(); }}>
+        <input class="field" type="tel" bind:value={number} placeholder="+420 …" aria-label="Phone number" autocomplete="off" />
+        <button class="btn btn-primary" type="submit" disabled={!number.trim()}>Call</button>
+      </form>
+      <div class="sub dialnote">The phone makes the call. You can talk on it, or <button class="link" type="button" onclick={() => api.bluetoothSettings().catch((e) => say(errText(e), true))}>connect it to this computer by Bluetooth</button> to talk here.</div>
+    {/if}
+  {/if}
   <div class="row slim">
     <Icon name="bell" size={18} />
     <div class="grow"><div class="name">Find device</div><div class="sub">{can('ring') ? (ringing ? 'Ringing, stops after 30 s' : 'Make it ring') : why('ring')}</div></div>
@@ -485,5 +506,16 @@
     .spin {
       animation: none;
     }
+  }
+  .dial {
+    display: flex;
+    gap: 8px;
+    padding: 4px 0 8px;
+  }
+  .dial .field {
+    flex: 1;
+  }
+  .dialnote {
+    padding-bottom: 8px;
   }
 </style>

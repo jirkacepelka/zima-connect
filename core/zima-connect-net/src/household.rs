@@ -20,7 +20,7 @@ pub enum Cap {
     Notifications,
     /// "Find my device" ring.
     Ring,
-    /// Voice calls.
+    /// Phone calls through a phone: dial from here, answer, see who is calling.
     Calls,
     /// Remote control: touchpad, keyboard, media keys, presentations.
     Remote,
