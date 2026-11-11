@@ -551,7 +551,11 @@
     color: var(--text);
   }
   .app.collapsed {
-    grid-template-columns: 72px 1fr;
+    grid-template-columns: 60px 1fr;
+  }
+  .side.collapsed {
+    padding: 14px 7px 7px;
+    align-items: center;
   }
   .side.collapsed .txt,
   .side.collapsed .lbl,
@@ -568,11 +572,18 @@
   .side.collapsed .fold {
     margin: 0;
   }
+  .side.collapsed .nav {
+    width: 100%;
+  }
   .side.collapsed .item,
   .side.collapsed .me {
     justify-content: center;
-    padding-left: 0;
-    padding-right: 0;
+    width: 36px;
+    height: 36px;
+    min-height: 0;
+    margin: 0 auto 4px;
+    padding: 0;
+    border-radius: 8px;
   }
   .mark b {
     display: block;
