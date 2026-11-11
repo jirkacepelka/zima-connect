@@ -2,6 +2,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod commands;
+mod files;
 mod remote;
 mod settings;
 mod state;
@@ -166,6 +167,19 @@ fn main() {
                 });
             }
             app.manage(state.clone());
+            // Other devices as folders in the file browser (this computer only).
+            {
+                let fs: Arc<dyn zima_connect_net::webdav::Fs> = Arc::new(files::DavFs(state.clone()));
+                let port = tauri::async_runtime::block_on(async {
+                    match zima_connect_net::webdav::serve(fs.clone(), 21980).await {
+                        Ok(p) => Some(p),
+                        Err(_) => zima_connect_net::webdav::serve(fs, 0).await.ok(),
+                    }
+                });
+                if let Some(p) = port {
+                    *state.dav_port.lock().unwrap() = p;
+                }
+            }
 
             // Tray: Zima Connect keeps running in the background.
             let open = MenuItem::with_id(app, "open", "Open Zima Connect", true, None::<&str>)?;
@@ -237,6 +251,20 @@ fn main() {
                         }
                         Event::SmsRequest { .. } => {}
                         Event::PhoneRequest { .. } | Event::ScreenRequest { .. } => {}
+                        Event::FilesRequest { req_id, op, .. } => {
+                            let state = state.clone();
+                            let handle = handle.clone();
+                            tauri::async_runtime::spawn(async move {
+                                let share = state.settings.lock().unwrap().share_files;
+                                let v = if share {
+                                    let roots = files::share_roots(&handle);
+                                    tokio::task::spawn_blocking(move || zima_connect_net::localfs::answer(&roots, &op)).await.unwrap_or_else(|_| serde_json::json!({ "error": "failed" }))
+                                } else {
+                                    serde_json::json!({ "error": "File sharing is off on this computer" })
+                                };
+                                let _ = state.node.files_reply(req_id, v);
+                            });
+                        }
                         Event::PhoneState { from, from_name, state: st, number, name } => {
                             if !state.settings.lock().unwrap().phone_calls { continue; }
                             let who = name.clone().unwrap_or_else(|| number.clone());
@@ -318,6 +346,9 @@ fn main() {
             commands::sms_send,
             commands::phone_op,
             commands::screen_op,
+            commands::files_list,
+            commands::files_save,
+            commands::files_explorer,
             commands::app_version,
             commands::open_external,
             commands::ls_peers,

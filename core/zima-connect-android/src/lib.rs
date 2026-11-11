@@ -226,6 +226,11 @@ async fn dispatch(method: &str, args_json: &str) -> anyhow::Result<Value> {
             n.rename_device(&a.device_name).await?;
             Value::Null
         }
+        // The phone answers a request about the files it shares.
+        "files_reply" => {
+            n.files_reply(a.call_id, a.value.unwrap_or(Value::Null))?;
+            Value::Null
+        }
         // The phone answers a request about its screen.
         "screen_reply" => {
             n.screen_reply(a.call_id, a.value.unwrap_or(Value::Null))?;

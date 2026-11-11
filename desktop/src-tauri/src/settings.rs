@@ -22,6 +22,9 @@ pub struct Settings {
     /// Show this computer to Quick Share (Android) users nearby and accept what they send (after asking).
     #[serde(default = "yes")]
     pub quickshare: bool,
+    /// Other devices of yours may browse and copy files from this computer (read-only: Desktop, Documents, Downloads, Pictures, Music, Videos).
+    #[serde(default)]
+    pub share_files: bool,
     // What to receive from other devices.
     #[serde(default = "yes")]
     pub clipboard_in: bool,
@@ -52,7 +55,7 @@ fn yes() -> bool {
 
 impl Default for Settings {
     fn default() -> Self {
-        Self { background: true, autostart: true, allow_remote: true, localsend: true, quickshare: true, clipboard_in: true, links_in: true, ring_in: true, notifications_in: true, phone_calls: true, sms: true, show_shelf: true, show_send: true, show_activity: true }
+        Self { background: true, autostart: true, allow_remote: true, localsend: true, quickshare: true, share_files: false, clipboard_in: true, links_in: true, ring_in: true, notifications_in: true, phone_calls: true, sms: true, show_shelf: true, show_send: true, show_activity: true }
     }
 }
 

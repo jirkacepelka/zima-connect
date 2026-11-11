@@ -499,6 +499,8 @@ private fun SettingsScreen(say: (String) -> Unit, onLeft: () -> Unit) {
             PhoneCard(say)
             Spacer(Modifier.height(12.dp))
             ScreenCard(say)
+            Spacer(Modifier.height(12.dp))
+            FilesCard(say)
             Spacer(Modifier.height(16.dp))
             RenameCard(say)
             if (AppModel.household != null) {

@@ -3,7 +3,7 @@ import { invoke } from '@tauri-apps/api/core';
 export type Delivery = 'delivered' | 'queued';
 export type ScreenOp = { op: 'status' } | { op: 'video'; after: number } | { op: 'tap'; x: number; y: number } | { op: 'hold'; x: number; y: number } | { op: 'swipe'; x1: number; y1: number; x2: number; y2: number; ms: number } | { op: 'key'; name: 'back' | 'home' | 'recents' | 'notifications' };
 export type PhoneOp = { op: 'dial'; number: string } | { op: 'answer' } | { op: 'decline' } | { op: 'hang_up' } | { op: 'mute'; on: boolean } | { op: 'state' };
-export type Cap = 'files' | 'clipboard' | 'notifications' | 'ring' | 'calls' | 'remote' | 'status' | 'sms' | 'screen';
+export type Cap = 'files' | 'clipboard' | 'notifications' | 'ring' | 'calls' | 'remote' | 'status' | 'sms' | 'screen' | 'storage';
 export const CAPS: { id: Cap; label: string; hint: string }[] = [
   { id: 'files', label: 'Files and photos', hint: 'Send files' },
   { id: 'clipboard', label: 'Clipboard', hint: 'Send clipboard text' },
@@ -13,7 +13,8 @@ export const CAPS: { id: Cap; label: string; hint: string }[] = [
   { id: 'remote', label: 'Remote control', hint: 'Touchpad, keyboard and media keys' },
   { id: 'status', label: 'Battery and status', hint: 'See the battery level' },
   { id: 'sms', label: 'Text messages', hint: 'Read and send SMS of a phone' },
-  { id: 'screen', label: 'Phone screen', hint: 'See and control a phone\'s screen' }
+  { id: 'screen', label: 'Phone screen', hint: 'See and control a phone\'s screen' },
+  { id: 'storage', label: 'Browse files', hint: 'Look at and copy the files a device shares' }
 ];
 
 export type Contact = {
@@ -55,7 +56,7 @@ export type UpdateInfo = {
 };
 export type SmsThread = { id: string; address: string; name: string | null; snippet: string; date: number; unread: boolean };
 export type SmsMessage = { id: string; address: string; body: string; date: number; outgoing: boolean };
-export type Settings = { background: boolean; autostart: boolean; allow_remote: boolean; localsend: boolean; quickshare: boolean; clipboard_in: boolean; links_in: boolean; ring_in: boolean; notifications_in: boolean; phone_calls: boolean; sms: boolean; show_shelf: boolean; show_send: boolean; show_activity: boolean };
+export type Settings = { background: boolean; autostart: boolean; allow_remote: boolean; localsend: boolean; quickshare: boolean; share_files: boolean; clipboard_in: boolean; links_in: boolean; ring_in: boolean; notifications_in: boolean; phone_calls: boolean; sms: boolean; show_shelf: boolean; show_send: boolean; show_activity: boolean };
 export type LsPeer = { fingerprint: string; alias: string; model: string | null; device_type: string; ip: string; port: number; https: boolean };
 export type LsIncoming = { session: string; from: string; pin?: string; via?: string; files: { id: string; name: string; size: number }[] };
 export type RemoteInput =
@@ -124,6 +125,9 @@ export const api = {
   smsThreads: (peerId: string) => invoke<SmsThread[]>('sms_threads', { peerId }),
   smsThread: (peerId: string, id: string) => invoke<SmsMessage[]>('sms_thread', { peerId, id }),
   smsSend: (peerId: string, to: string, body: string) => invoke<void>('sms_send', { peerId, to, body }),
+  filesList: (peerId: string, path: string) => invoke<{ entries: { name: string; dir: boolean; size: number; mtime: number }[] }>('files_list', { peerId, path }),
+  filesSave: (peerId: string, path: string) => invoke<string>('files_save', { peerId, path }),
+  filesExplorer: (peerId: string) => invoke<void>('files_explorer', { peerId }),
   screenOp: (peerId: string, op: ScreenOp) => invoke<unknown>('screen_op', { peerId, op }),
   phoneOp: (peerId: string, op: PhoneOp) => invoke<unknown>('phone_op', { peerId, op }),
   lsPeers: () => invoke<LsPeer[]>('ls_peers'),

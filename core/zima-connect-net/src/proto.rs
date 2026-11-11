@@ -74,6 +74,18 @@ pub enum ScreenOp {
     },
 }
 
+/// What another device asks of the files a device shares (read-only). Paths start with `/`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "op", rename_all = "snake_case")]
+pub enum FilesOp {
+    /// The entries of a folder as { entries: [{ name, dir, size, mtime }] }.
+    List { path: String },
+    /// { dir, size, mtime }
+    Stat { path: String },
+    /// A piece of a file as { data (base64), size, eof }; at most about 768 kB at a time.
+    Read { path: String, offset: u64, len: u64 },
+}
+
 /// Things one device can do on another by remote control.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "k", rename_all = "snake_case")]
@@ -139,6 +151,10 @@ pub enum Request {
         state: String,
         number: String,
         name: Option<String>,
+    },
+    /// Browse the files another device shares; that device's app answers.
+    Files {
+        op: FilesOp,
     },
     /// Look at and control a phone's screen; the phone's app answers.
     Screen {

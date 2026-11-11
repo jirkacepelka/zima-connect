@@ -3,7 +3,7 @@ use std::time::Duration;
 
 use futures_util::future::join_all;
 use serde::Serialize;
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Manager, State};
 use tauri_plugin_clipboard_manager::ClipboardExt;
 use tauri_plugin_dialog::DialogExt;
 
@@ -136,6 +136,51 @@ pub async fn phone_op(peer_id: String, op: PhoneOp, state: State<'_, SharedState
 #[tauri::command]
 pub async fn screen_op(peer_id: String, op: zima_connect_net::ScreenOp, state: State<'_, SharedState>) -> Result<serde_json::Value, String> {
     state.node.screen(&peer_id, op).await.map_err(|e| format!("{e:#}"))
+}
+
+/// A folder of another device: { entries: [{ name, dir, size, mtime }] }.
+#[tauri::command]
+pub async fn files_list(peer_id: String, path: String, state: State<'_, SharedState>) -> Result<serde_json::Value, String> {
+    state.node.files(&peer_id, zima_connect_net::FilesOp::List { path }).await.map_err(|e| format!("{e:#}"))
+}
+
+/// Copy a file of another device into Downloads/Zima Connect; returns where it is now.
+#[tauri::command]
+pub async fn files_save(peer_id: String, path: String, app: AppHandle, state: State<'_, SharedState>) -> Result<String, String> {
+    let dir = app.path().download_dir().map_err(|e| e.to_string())?.join("Zima Connect");
+    let from = peer_name(&state, &peer_id);
+    let target = crate::files::download(&state, &peer_id, &path, dir).await.map_err(|e| format!("{e:#}"))?;
+    let shown = target.to_string_lossy().into_owned();
+    state.log("file", format!("Copied {}", target.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()), format!("from {from}"), true, Some(shown.clone()));
+    Ok(shown)
+}
+
+/// Open a device's files in this computer's own file browser (a WebDAV location on this computer).
+#[tauri::command]
+pub fn files_explorer(peer_id: String, state: State<'_, SharedState>) -> Result<(), String> {
+    let port = *state.dav_port.lock().unwrap();
+    if port == 0 {
+        return Err("The file browser link could not start".into());
+    }
+    let name = state
+        .node
+        .contacts()
+        .into_iter()
+        .find(|c| c.id == peer_id)
+        .map(|c| c.name.chars().map(|ch| if "\\/:*?\"<>|".contains(ch) { '_' } else { ch }).collect::<String>())
+        .ok_or("device not found")?;
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        let unc = format!("\\\\127.0.0.1@{port}\\DavWWWRoot\\{name}");
+        std::process::Command::new("explorer.exe").raw_arg(format!("\"{unc}\"")).spawn().map_err(|e| e.to_string())?;
+    }
+    #[cfg(not(windows))]
+    {
+        let url = format!("dav://127.0.0.1:{port}/{}", name.replace(' ', "%20"));
+        std::process::Command::new("xdg-open").arg(url).spawn().map_err(|e| e.to_string())?;
+    }
+    Ok(())
 }
 
 /// The conversations of a phone's text messages.

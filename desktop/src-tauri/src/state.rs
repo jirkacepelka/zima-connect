@@ -28,6 +28,8 @@ pub struct AppState {
     pub node: Node,
     pub localsend: LocalSend,
     pub quickshare: QuickShare,
+    /// Port of the local WebDAV server that shows other devices in the file browser.
+    pub dav_port: Mutex<u16>,
     pub activities: Mutex<Vec<Activity>>,
     next_id: Mutex<u64>,
     /// "Find my device": who is ringing this computer, since when.
@@ -44,6 +46,7 @@ impl AppState {
             node,
             localsend,
             quickshare,
+            dav_port: Mutex::new(0),
             activities: Mutex::new(Vec::new()),
             next_id: Mutex::new(1),
             ringing: Mutex::new(None),

@@ -4,6 +4,7 @@
   import Mockup from '$lib/Mockup.svelte';
   import RemotePad from '$lib/RemotePad.svelte';
   import ScreenView from '$lib/ScreenView.svelte';
+  import FilesView from '$lib/FilesView.svelte';
   import Dialog from '$lib/Dialog.svelte';
   import { dial } from '$lib/phone.svelte';
   import { on } from '$lib/prefs.svelte';
@@ -42,6 +43,7 @@
   let sending = $state(false);
   let remoteOpen = $state(false);
   let screenOpen = $state(false);
+  let filesOpen = $state(false);
   let dialOpen = $state(false);
   let number = $state('');
   async function placeCall() {
@@ -249,6 +251,12 @@
     </div>
   {/if}
   <div class="row slim">
+    <Icon name="file" size={18} />
+    <div class="grow"><div class="name">Files</div><div class="sub">{can('storage') ? 'Browse and copy what this device shares' : why('storage')}</div></div>
+    <button class="btn btn-secondary" disabled={!can('storage')} onclick={() => (filesOpen = true)}>Browse</button>
+    <button class="btn btn-secondary" disabled={!can('storage')} title="Show it as a location in your file browser" onclick={() => api.filesExplorer(c.id).catch((e) => say(errText(e), true))}>In Explorer</button>
+  </div>
+  <div class="row slim">
     <Icon name="bell" size={18} />
     <div class="grow"><div class="name">Find device</div><div class="sub">{can('ring') ? (ringing ? 'Ringing, stops after 30 s' : 'Make it ring') : why('ring')}</div></div>
     {#if ringing}
@@ -265,6 +273,13 @@
   {#if remoteOpen && can('remote')}<RemotePad peerId={c.id} name={c.name} {say} />{/if}
 </section>
 </div>
+
+{#if filesOpen}
+  <Dialog wide title="{c.name}: files" onclose={() => (filesOpen = false)}>
+    <FilesView peerId={c.id} name={c.name} {say} />
+    <div class="actions"><button class="btn btn-secondary" onclick={() => (filesOpen = false)}>Close</button></div>
+  </Dialog>
+{/if}
 
 {#if screenOpen}
   <Dialog wide title="{c.name}: screen" onclose={() => (screenOpen = false)}>

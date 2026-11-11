@@ -12,6 +12,7 @@
 
 mod household;
 mod hub;
+pub mod localfs;
 pub mod localsend;
 mod mailbox;
 mod proto;
@@ -19,6 +20,7 @@ pub mod quickshare;
 mod seal;
 mod shelf;
 mod store;
+pub mod webdav;
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -37,7 +39,7 @@ pub use household::{AdminOp, Cap, Device, Role, Rule, SignedSnapshot, Snapshot, 
 use hub::{HubCore, Outcome};
 use mailbox::{Item, Kind, Mailbox, Payload};
 use proto::{read_msg, write_msg, Request, Response};
-pub use proto::{PhoneOp, RemoteInput, ScreenOp, SmsOp};
+pub use proto::{FilesOp, PhoneOp, RemoteInput, ScreenOp, SmsOp};
 pub use shelf::{Audience, ShelfItem};
 pub use store::Peer;
 use store::Store;
@@ -140,6 +142,13 @@ pub enum Event {
         from: String,
         from_name: String,
         op: PhoneOp,
+    },
+    /// Another device wants to browse the files this device shares: answer with `Node::files_reply`.
+    FilesRequest {
+        req_id: u64,
+        from: String,
+        from_name: String,
+        op: FilesOp,
     },
     /// Another device wants to see or control this phone's screen: answer with `Node::screen_reply`.
     ScreenRequest {
@@ -1094,6 +1103,24 @@ impl Node {
         }
     }
 
+    /// Browse the files another device shares.
+    pub async fn files(&self, peer_id: &str, op: FilesOp) -> Result<serde_json::Value> {
+        match self
+            .request_peer(peer_id, Request::Files { op }, Some(Cap::Storage), None)
+            .await?
+        {
+            Response::Json { value } => Ok(value),
+            Response::Ok => Ok(serde_json::Value::Null),
+            Response::Err { message } => bail!("{message}"),
+            _ => bail!("unexpected response"),
+        }
+    }
+
+    /// The app answers a request that arrived as `Event::FilesRequest`.
+    pub fn files_reply(&self, req_id: u64, value: serde_json::Value) -> Result<()> {
+        self.sms_reply(req_id, value)
+    }
+
     /// See or control a phone's screen from here.
     pub async fn screen(&self, peer_id: &str, op: ScreenOp) -> Result<serde_json::Value> {
         match self
@@ -1963,6 +1990,7 @@ impl Node {
             Request::Battery { .. } => Some(Cap::Status),
             Request::Remote { .. } => Some(Cap::Remote),
             Request::Screen { .. } => Some(Cap::Screen),
+            Request::Files { .. } => Some(Cap::Storage),
             _ => None, // Ping
         };
         let who = match self.authorize(remote, cap).await {
@@ -2035,6 +2063,37 @@ impl Node {
                     name: name.clone(),
                 });
                 Response::Ok
+            }
+            Request::Files { op } => {
+                let req_id = self
+                    .inner
+                    .next_call
+                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                let (tx, rx) = tokio::sync::oneshot::channel();
+                self.inner.rpc.lock().unwrap().insert(req_id, tx);
+                let _ = ev.send(Event::FilesRequest {
+                    req_id,
+                    from: who.id,
+                    from_name: who.name,
+                    op: op.clone(),
+                });
+                match tokio::time::timeout(Duration::from_secs(20), rx).await {
+                    Ok(Ok(value)) => {
+                        if let Some(m) = value.get("error").and_then(|e| e.as_str()) {
+                            Response::Err {
+                                message: m.to_string(),
+                            }
+                        } else {
+                            Response::Json { value }
+                        }
+                    }
+                    _ => {
+                        self.inner.rpc.lock().unwrap().remove(&req_id);
+                        Response::Err {
+                            message: "the device did not answer (is file sharing on?)".into(),
+                        }
+                    }
+                }
             }
             Request::Screen { op } => {
                 let req_id = self

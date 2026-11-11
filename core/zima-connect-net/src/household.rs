@@ -30,10 +30,12 @@ pub enum Cap {
     Sms,
     /// See and control a phone's screen.
     Screen,
+    /// Browse the files a device shares (read-only).
+    Storage,
 }
 
 impl Cap {
-    pub const ALL: [Cap; 9] = [
+    pub const ALL: [Cap; 10] = [
         Cap::Files,
         Cap::Clipboard,
         Cap::Notifications,
@@ -43,6 +45,7 @@ impl Cap {
         Cap::Status,
         Cap::Sms,
         Cap::Screen,
+        Cap::Storage,
     ];
 
     /// Between two *different* people only these are allowed unless a rule says otherwise.

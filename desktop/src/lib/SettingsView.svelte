@@ -133,6 +133,10 @@
       <label class="switch"><input type="checkbox" role="switch" aria-label="Visible to LocalSend" checked={prefs.localsend} onchange={(e) => save({ localsend: e.currentTarget.checked })} /><i></i></label>
     </div>
     <div class="row">
+      <div class="grow"><div class="name">Share files with my other devices</div><div class="sub">Lets your own devices look at and copy your Desktop, Documents, Downloads, Pictures, Music and Videos. Read-only, and only where your household rules allow it.</div></div>
+      <label class="switch"><input type="checkbox" role="switch" aria-label="Share files" checked={prefs.share_files} onchange={(e) => save({ share_files: e.currentTarget.checked })} /><i></i></label>
+    </div>
+    <div class="row">
       <div class="grow"><div class="name">Visible to Quick Share</div><div class="sub">Android phones nearby can send you files, texts and links. You see a PIN and always get asked first.</div></div>
       <label class="switch"><input type="checkbox" role="switch" aria-label="Visible to Quick Share" checked={prefs.quickshare} onchange={(e) => save({ quickshare: e.currentTarget.checked })} /><i></i></label>
     </div>

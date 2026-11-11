@@ -162,6 +162,14 @@ class ConnectService : Service() {
                 val reply = SmsBridge.answer(applicationContext, ev.getJSONObject("op"))
                 runCatching { Api.call("sms_reply", Api.args("call_id" to ev.getLong("req_id"), "value" to reply)) }
             }
+            "files_request" -> {
+                val op = ev.getJSONObject("op")
+                val id = ev.getLong("req_id")
+                scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                    val reply = FilesBridge.answer(applicationContext, op)
+                    runCatching { Api.call("files_reply", Api.args("call_id" to id, "value" to reply)) }
+                }
+            }
             "screen_request" -> {
                 // Video requests wait for the next picture: do not hold up the other events.
                 val op = ev.getJSONObject("op")

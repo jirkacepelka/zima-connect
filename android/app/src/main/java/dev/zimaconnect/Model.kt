@@ -67,6 +67,7 @@ val CAPS = listOf(
     "status" to "Battery and status",
     "sms" to "Text messages",
     "screen" to "Phone screen",
+    "storage" to "Browse files",
 )
 
 data class ShelfItem(
