@@ -27,8 +27,7 @@ import androidx.compose.ui.graphics.nativeCanvas
 fun kindOf(platform: String, name: String): String = when {
     platform == "server" -> "server"
     platform == "android" || platform == "ios" -> if (Regex("tab|pad|slate", RegexOption.IGNORE_CASE).containsMatchIn(name)) "tablet" else "phone"
-    Regex("desktop|tower|pc$|^pc|nuc|mini|imac|studio|server|workstation", RegexOption.IGNORE_CASE).containsMatchIn(name) -> "desktop"
-    else -> "laptop"
+    else -> "laptop" // computers always get the laptop picture
 }
 
 /** The person's colour, the same on every screen (falls back to a stable guess for old servers). */

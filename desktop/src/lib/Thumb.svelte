@@ -5,7 +5,8 @@
   import { api, type ShelfItem } from '$lib/api';
   import { ext, isImage, isPdf } from '$lib/devices';
 
-  let { item, big = false }: { item: ShelfItem; big?: boolean } = $props();
+  // `path`: a file on this computer (what is about to be sent); otherwise the item is fetched from the shelf.
+  let { item, big = false, path: local = '' }: { item: Pick<ShelfItem, 'name' | 'size'> & { id?: string }; big?: boolean; path?: string } = $props();
 
   let src = $state<string | null>(null);
   let canvas: HTMLCanvasElement | undefined = $state();
@@ -18,7 +19,7 @@
 
   async function load() {
     try {
-      const path = await api.shelfCache(item.id, item.name, item.size);
+      const path = local || (await api.shelfCache(item.id!, item.name, item.size));
       const url = path.startsWith('data:') ? path : convertFileSrc(path);
       if (isImage(item.name)) src = url;
       else if (isPdf(item.name)) await renderPdf(url);
@@ -78,7 +79,7 @@
     position: relative;
     aspect-ratio: 4 / 3;
     background: var(--raised);
-    border-radius: 6px;
+    border-radius: var(--radius-card);
     overflow: hidden;
     display: grid;
     place-items: center;

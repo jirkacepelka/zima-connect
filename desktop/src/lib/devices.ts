@@ -6,7 +6,7 @@ export type Kind = 'phone' | 'tablet' | 'laptop' | 'desktop' | 'server';
 export function kindOf(platform: string, name = ''): Kind {
   if (platform === 'server') return 'server';
   if (platform === 'android' || platform === 'ios') return /tab|pad|slate/i.test(name) ? 'tablet' : 'phone';
-  if (/desktop|tower|pc$|^pc|nuc|mini|imac|studio|server|workstation/i.test(name)) return 'desktop';
+  // Computers always get the laptop picture, whatever they are called.
   return 'laptop';
 }
 

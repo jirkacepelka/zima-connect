@@ -3,7 +3,9 @@
   import Icon from '$lib/Icon.svelte';
   import Dialog from '$lib/Dialog.svelte';
   import { api, errText, type Contact, type LsPeer } from '$lib/api';
-  import { hueFor, size } from '$lib/devices';
+  import Thumb from '$lib/Thumb.svelte';
+  import Mockup from '$lib/Mockup.svelte';
+  import { hueFor, kindOf, size } from '$lib/devices';
 
   let {
     contacts,
@@ -11,7 +13,8 @@
     dragging,
     say,
     refresh,
-    onlistenDrop
+    onlistenDrop,
+    onclose
   }: {
     contacts: Contact[];
     nearby: LsPeer[];
@@ -19,9 +22,10 @@
     say: (t: string, err?: boolean) => void;
     refresh: () => void;
     onlistenDrop: (h: ((paths: string[]) => void) | null) => void;
+    onclose: () => void;
   } = $props();
 
-  type Staged = { id: number; kind: 'file' | 'text' | 'link'; label: string; detail: string; path?: string; value?: string; state: 'ready' | 'sending' | 'done' | 'failed' };
+  type Staged = { id: number; kind: 'file' | 'text' | 'link'; label: string; detail: string; path?: string; bytes?: number; value?: string; state: 'ready' | 'sending' | 'done' | 'failed' };
   let staged = $state<Staged[]>([]);
   let nextId = 1;
   let sending = $state(false);
@@ -76,7 +80,7 @@
         continue;
       }
       if (staged.some((s) => s.path === i.path)) continue;
-      staged.push({ id: nextId++, kind: 'file', label: i.name, detail: size(i.size), path: i.path, state: 'ready' });
+      staged.push({ id: nextId++, kind: 'file', label: i.name, detail: size(i.size), path: i.path, bytes: i.size, state: 'ready' });
     }
   }
   async function choose() {
@@ -155,142 +159,120 @@
   }
 </script>
 
-<div class="send" class:over={dragging}>
-  <div class="panel-head">
-    <span class="meta">Goes straight to the device you pick · nothing is kept</span>
-    <button class="btn btn-primary" onclick={choose}><Icon name="plus" size={15} /> Add files…</button>
-  </div>
-  {#if staged.length === 0}
-    <div class="dropzone" class:over={dragging}>
-      <Icon name="upload" size={22} />
-      <b>Drop files here</b>
-      <span class="sub">Text or a link you copied shows up here by itself. You pick who gets it next.</span>
-    </div>
-  {:else}
-    <ul class="staged" aria-label="Ready to send">
-      {#each staged as s (s.id)}
-        <li class="item {s.state}">
-          <span class="ico"><Icon name={s.kind === 'file' ? 'file' : s.kind === 'link' ? 'globe' : 'clipboard'} size={16} /></span>
-          <span class="lbl"><b>{s.label}</b><span class="sub num">{s.detail}</span></span>
-          {#if s.state === 'sending'}<span class="spin" aria-label="Sending"></span>
-          {:else if s.state === 'done'}<span class="okm"><Icon name="check" size={16} /></span>
-          {:else}<button class="x" onclick={() => remove(s.id)} aria-label="Remove {s.label}"><Icon name="x" size={14} /></button>{/if}
-        </li>
-      {/each}
-    </ul>
-    <div class="add">
-      <button type="button" class="btn btn-primary" disabled={sending || !readyCount} onclick={() => (picking = true)}>{sending ? 'Sending…' : `Send ${readyCount}…`}</button>
-    </div>
-  {/if}
-</div>
-
-{#if picking}
-  <Dialog title="Send to" onclose={() => (picking = false)}>
-    <p class="lead"><b>Who gets {readyCount === 1 ? 'it' : `these ${readyCount} items`}?</b></p>
-    <div class="to" role="group" aria-label="Send to">
-      {#if contacts.length === 0 && nearby.length === 0}
-        <div class="sub">No devices yet. Add one, or open LocalSend or Quick Share on a device nearby.</div>
+<Dialog wide title={picking ? 'Send to' : 'Send'} onback={picking ? () => (picking = false) : undefined} {onclose}>
+  {#if !picking}
+    <section class="droppable" class:over={dragging && staged.length > 0} aria-label="Send">
+      <div class="panel-head">
+        <span class="meta">Goes straight to the device you pick · nothing is kept</span>
+        <button class="btn btn-primary" onclick={choose}><Icon name="plus" size={15} /> Add files…</button>
+      </div>
+      {#if staged.length === 0}
+        <div class="dropzone" class:over={dragging}>
+          <Icon name="upload" size={22} />
+          <b>Drop files here</b>
+          <span class="sub">Text or a link you copied shows up here by itself. You pick who gets it next.</span>
+        </div>
+      {:else}
+        <div class="tile-grid" role="list" aria-label="Ready to send">
+          {#each staged as s (s.id)}
+            <div class="tile {s.state}" role="listitem">
+              {#if s.kind === 'file'}
+                <Thumb item={{ name: s.label, size: s.bytes ?? 0 }} path={s.path} />
+              {:else}
+                <div class="txt"><Icon name={s.kind === 'link' ? 'globe' : 'clipboard'} size={26} /><span>{s.kind === 'link' ? 'link' : 'text'}</span></div>
+              {/if}
+              <div class="cap">
+                <div class="n" title={s.label}>{s.label}</div>
+                <div class="sub num">{s.detail}</div>
+              </div>
+              {#if s.state === 'sending'}<span class="st"><span class="spin" aria-label="Sending"></span></span>
+              {:else if s.state === 'done'}<span class="st ok"><Icon name="check" size={20} /></span>
+              {:else}<div class="acts"><button class="mini" onclick={() => remove(s.id)} aria-label="Remove {s.label}" title="Remove"><Icon name="x" size={14} /></button></div>{/if}
+            </div>
+          {/each}
+        </div>
+        <div class="panel-foot">
+          <span class="sub">Drop files here to add them.</span>
+          <button type="button" class="btn btn-primary go" disabled={sending || !readyCount} onclick={() => (picking = true)}>{sending ? 'Sending…' : `Send ${readyCount}…`}</button>
+        </div>
       {/if}
-      {#each [{ label: 'My devices', items: mine }, { label: 'Others in the household', items: others }] as g}
-        {#if g.items.length}
-          <div class="grp">
-            <span class="g">{g.label}</span>
-            {#each g.items as c (c.id)}
-              <button class="pick" class:off={!reachable(c)} disabled={!reachable(c)} style="--h:{hueFor(c)}" onclick={() => choosePeer(c.id)}>
-                <i class="dot" class:live={c.online}></i>{c.name}
-              </button>
-            {/each}
-          </div>
-        {/if}
-      {/each}
-      {#if nearby.length}
-        <div class="grp">
-          <span class="g">Nearby, with LocalSend or Quick Share</span>
-          {#each nearby as p (p.fingerprint)}
-            <button class="pick" onclick={() => choosePeer('ls:' + p.fingerprint)}>
-              <Icon name={p.device_type === 'mobile' ? 'phone' : 'laptop'} size={14} />{p.alias}
+    </section>
+    <div class="actions"><button class="btn btn-secondary" onclick={onclose}>Close</button></div>
+  {:else}
+    <p class="lead"><b>Who gets {readyCount === 1 ? 'it' : `these ${readyCount} items`}?</b></p>
+    {#if contacts.length === 0 && nearby.length === 0}
+      <div class="sub">No devices yet. Add one, or open LocalSend or Quick Share on a device nearby.</div>
+    {/if}
+    {#each [{ label: 'My devices', items: mine }, { label: 'Others in the household', items: others }] as g}
+      {#if g.items.length}
+        <h4>{g.label}</h4>
+        <div class="picks">
+          {#each g.items as c (c.id)}
+            <button class="pick" class:off={!reachable(c)} disabled={!reachable(c)} style="--h:{hueFor(c)}" onclick={() => choosePeer(c.id)}>
+              <Mockup kind={kindOf(c.platform, c.name)} platform={c.platform} hue={hueFor(c)} online={c.online} battery={c.battery} size={84} fit="height" maxWidth={96} />
+              <b>{c.name}</b>
+              <span class="sub"><i class="dot" class:live={c.online}></i>{c.online ? 'Connected' : reachable(c) ? 'Via the server' : 'Offline'}</span>
             </button>
           {/each}
         </div>
       {/if}
-    </div>
-    <div class="actions"><button class="btn btn-secondary" onclick={() => (picking = false)}>Cancel</button></div>
-  </Dialog>
-{/if}
+    {/each}
+    {#if nearby.length}
+      <h4>Nearby</h4>
+      <div class="picks">
+        {#each nearby as p (p.fingerprint)}
+          <button class="pick" onclick={() => choosePeer('ls:' + p.fingerprint)}>
+            <Mockup kind={p.device_type === 'mobile' ? 'phone' : 'laptop'} platform="" hue={210} online={true} size={84} fit="height" maxWidth={96} />
+            <b>{p.alias}</b>
+            <span class="sub">{p.fingerprint.startsWith('qs:') ? 'Quick Share' : 'LocalSend'}</span>
+          </button>
+        {/each}
+      </div>
+    {/if}
+  {/if}
+</Dialog>
 
 <style>
-  .send {
-    border-radius: 14px;
-    transition: box-shadow 0.12s;
-  }
-  .send.over {
-    box-shadow: 0 0 0 2px var(--primary);
-  }
-  .zone {
-    display: grid;
-    justify-items: center;
-    gap: 6px;
-    padding: 52px 20px;
-    text-align: center;
-    border: 1.5px dashed var(--control);
-    border-radius: 14px;
-    color: var(--muted);
-  }
-  .zone b {
-    color: var(--text);
-  }
-  .zone.over {
-    border-color: var(--primary);
-  }
-  .btns {
-    display: flex;
-    gap: 8px;
-    margin-top: 8px;
-    flex-wrap: wrap;
-    justify-content: center;
-  }
-  .staged {
-    list-style: none;
-    margin: 0;
-    padding: 0;
-    display: grid;
-    gap: 6px;
-  }
-  .item {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 8px 12px;
-    border-radius: 10px;
+  .tile .txt {
+    aspect-ratio: 4 / 3;
+    border-radius: var(--radius-card);
     background: var(--raised);
-  }
-  .item.failed {
-    box-shadow: inset 0 0 0 1px #d63b3b;
-  }
-  .lbl {
-    display: grid;
-    min-width: 0;
-    flex: 1;
-  }
-  .lbl b {
-    font-weight: 500;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-  .x {
-    width: 24px;
-    height: 24px;
+    color: var(--muted);
     display: grid;
     place-items: center;
-    border-radius: 6px;
+    align-content: center;
+    gap: 6px;
+  }
+  .tile .txt span {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    font-weight: 600;
+  }
+  .tile.failed :global(.thumb),
+  .tile.failed .txt {
+    box-shadow: inset 0 0 0 1.5px var(--negative);
+  }
+  .st {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    aspect-ratio: 4 / 3;
+    display: grid;
+    place-items: center;
+    border-radius: var(--radius-card);
+    background: color-mix(in srgb, var(--surface) 70%, transparent);
+  }
+  .st.ok {
+    color: var(--on);
   }
   .spin {
-    width: 16px;
-    height: 16px;
+    width: 20px;
+    height: 20px;
     border-radius: 50%;
     border: 2px solid var(--control);
-    border-top-color: var(--primary);
+    border-top-color: var(--text);
     animation: spin 0.8s linear infinite;
   }
   @keyframes spin {
@@ -298,46 +280,52 @@
       transform: rotate(360deg);
     }
   }
-  .add {
-    display: flex;
-    justify-content: flex-end;
-    margin-top: 10px;
+  .go {
+    margin-left: auto;
   }
-  .to {
-    display: grid;
-    gap: 10px;
-  }
-  .lbl-row {
+  h4 {
+    margin: 16px 0 8px;
     font-size: 13px;
     font-weight: 600;
     color: var(--muted);
   }
-  .grp {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    flex-wrap: wrap;
-  }
-  .g {
-    font-size: 12px;
-    color: var(--muted);
-    min-width: 130px;
+  .picks {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: 10px;
   }
   .pick {
+    display: grid;
+    justify-items: center;
+    gap: 3px;
+    padding: 12px 8px 12px;
+    text-align: center;
+    border-radius: var(--radius-card);
+    background: none;
+    min-width: 0;
+  }
+  .pick {
+    transition: transform 0.15s;
+  }
+  .pick:hover:not(:disabled) {
+    transform: translateY(-2px);
+  }
+  .pick :global(.wrap),
+  .pick :global(svg) {
+    margin-bottom: 6px;
+  }
+  .pick b {
+    max-width: 100%;
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .pick .sub {
     display: inline-flex;
     align-items: center;
-    gap: 7px;
-    height: 32px;
-    padding: 0 14px;
-    border-radius: 99px;
-    box-shadow: inset 0 0 0 1px var(--control);
-    background: var(--surface);
-    font-size: 14px;
-  }
-  .pick.on {
-    background: var(--primary);
-    color: var(--primary-ink);
-    box-shadow: none;
+    gap: 6px;
+    font-size: 13px;
   }
   .pick.off {
     opacity: 0.45;
@@ -349,12 +337,7 @@
     background: var(--control);
   }
   .dot.live {
-    background: hsl(var(--h) 60% 48%);
-  }
-  .go {
-    display: flex;
-    align-items: center;
-    gap: 12px;
+    background: var(--on);
   }
   @media (prefers-reduced-motion: reduce) {
     .spin {

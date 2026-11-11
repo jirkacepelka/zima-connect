@@ -1,7 +1,9 @@
 <script lang="ts">
   import { onMount, type Snippet } from 'svelte';
 
-  let { title, onclose, wide = false, children }: { title: string; onclose: () => void; wide?: boolean; children: Snippet } = $props();
+  import Icon from '$lib/Icon.svelte';
+
+  let { title, onclose, onback, wide = false, children }: { title: string; onclose: () => void; onback?: () => void; wide?: boolean; children: Snippet } = $props();
 
   let box: HTMLDivElement;
   let previous: HTMLElement | null = null;
@@ -38,7 +40,10 @@
 
 <div class="overlay" role="presentation" onmousedown={(e) => e.target === e.currentTarget && onclose()}>
   <div class="sheet" role="dialog" aria-modal="true" aria-label={title} class:wide tabindex="-1" bind:this={box} onkeydown={key}>
-    <h3>{title}</h3>
+    <div class="top">
+      {#if onback}<button class="back" onclick={onback} aria-label="Back" title="Back"><Icon name="back" size={16} /></button>{/if}
+      <h3>{title}</h3>
+    </div>
     {@render children()}
   </div>
 </div>
@@ -67,8 +72,27 @@
     padding: 22px;
     user-select: text;
   }
-  h3 {
+  .top {
+    display: flex;
+    align-items: center;
+    gap: 8px;
     margin: 0 0 12px;
+  }
+  .back {
+    width: 28px;
+    height: 28px;
+    margin-left: -6px;
+    display: grid;
+    place-items: center;
+    border-radius: 6px;
+    color: var(--muted);
+  }
+  .back:hover {
+    background: var(--raised);
+    color: var(--text);
+  }
+  h3 {
+    margin: 0;
     font-size: 16px;
     font-weight: 600;
   }

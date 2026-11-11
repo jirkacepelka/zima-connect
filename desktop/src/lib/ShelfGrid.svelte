@@ -117,7 +117,7 @@
   }
 </script>
 
-<section class="shelf" class:over={dragging} aria-label="Your shelf">
+<section class="droppable" class:over={dragging && items.length > 0} aria-label="Your shelf">
   <div class="panel-head">
     <span class="meta">Only you · reachable from all your devices</span>
     <button class="btn btn-primary" disabled={!household} onclick={() => put(() => api.shelfPut())}><Icon name="plus" size={15} /> Add files…</button>
@@ -132,7 +132,7 @@
       <span class="sub">Keep a file here and pick it up on your phone or another computer. Drag it back out to save it anywhere.</span>
     </div>
   {:else}
-    <div class="grid" role="list">
+    <div class="tile-grid" role="list">
       {#each visible as i (i.id)}
         <div class="tile" role="listitem" class:dragging={dragId === i.id} onpointerdown={(e) => down(e, i)}>
           <button class="open" onclick={() => (preview = i)} aria-label="Preview {i.name}"><Thumb item={i} /></button>
@@ -170,31 +170,12 @@
 {/if}
 
 <style>
-  .shelf {
-    margin-bottom: 0;
-    border-radius: 14px;
-    transition: box-shadow 0.12s, background 0.12s;
-  }
-  .shelf.over {
-    box-shadow: 0 0 0 2px var(--hue);
-    background: var(--hue-pale);
-  }
-  .grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
-    gap: 16px 14px;
-    padding: 0;
-  }
   .tile {
-    position: relative;
-    display: grid;
-    gap: 8px;
     padding: 0;
     cursor: grab;
     touch-action: none;
   }
   .tile :global(.thumb) {
-    border-radius: 10px;
     transition: transform 0.15s;
   }
   .tile:hover :global(.thumb) {
@@ -209,47 +190,12 @@
     padding: 0;
     cursor: pointer;
   }
-  .cap {
-    padding: 0 2px;
-    min-width: 0;
-  }
-  .n {
-    font-weight: 500;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-  .acts {
-    position: absolute;
-    top: 10px;
-    right: 10px;
-    display: flex;
-    gap: 4px;
-    opacity: 0;
-    transition: opacity 0.12s;
-  }
-  .tile:hover .acts,
-  .tile:focus-within .acts {
-    opacity: 1;
-  }
-  .mini {
-    width: 28px;
-    height: 28px;
-    display: grid;
-    place-items: center;
-    border-radius: 6px;
-    background: var(--surface);
-    box-shadow: 0 0 0 1px var(--border);
-  }
-  .mini:hover {
-    background: var(--raised);
-  }
   .loading {
     opacity: 0.6;
   }
   .thumb-ph {
     aspect-ratio: 4 / 3;
-    border-radius: 6px;
+    border-radius: var(--radius-card);
     background: var(--raised);
     animation: shimmer 1.2s ease-in-out infinite;
   }

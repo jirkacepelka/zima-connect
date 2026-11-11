@@ -92,8 +92,14 @@
   function deviceAt(pos: { x: number; y: number }): string | null {
     const r = window.devicePixelRatio || 1;
     const el = document.elementFromPoint(pos.x / r, pos.y / r);
+    const panel = el?.closest<HTMLElement>('[data-drop-panel]')?.dataset.dropPanel;
+    if (panel) return 'panel:' + panel;
     return el?.closest<HTMLElement>('[data-device-id]')?.dataset.deviceId ?? null;
   }
+
+  // Files dropped on the Send or Shelf button of Home: Home opens it and puts them there.
+  let homeDrop = $state<{ panel: 'send' | 'shelf'; paths: string[]; n: number } | null>(null);
+  let dropCount = 0;
 
   const selected = $derived(contacts.find((c) => c.id === selectedId) ?? contacts[0] ?? null);
   const groups = $derived.by(() => {
@@ -185,6 +191,10 @@
 
   async function dropped(paths: string[], target: string | null) {
     if (!paths.length) return;
+    if (target?.startsWith('panel:')) {
+      homeDrop = { panel: target.slice(6) as 'send' | 'shelf', paths, n: ++dropCount };
+      return;
+    }
     // Dropped on a device card: send right away.
     if (target) {
       const c = contacts.find((x) => x.id === target);
@@ -334,11 +344,10 @@
     <div class="mark">
       <span class="glyph"><Logo size={30} /></span>
       <div class="txt"><b>Zima Connect</b><span>{household ? household.info.household : 'Not connected to a server'}</span></div>
-      <button class="fold" onclick={toggleSide} aria-label={collapsed ? 'Expand the sidebar' : 'Collapse the sidebar'} title={collapsed ? 'Expand' : 'Collapse'}><Icon name="sidebar" size={16} /></button>
     </div>
 
     <nav class="nav">
-      <button class="item" aria-current={view === 'home' ? 'page' : undefined} onclick={() => go('home')}><Icon name="shelf" size={16} /><span class="lbl">Home</span></button>
+      <button class="item" aria-current={view === 'home' ? 'page' : undefined} onclick={() => go('home')}><Icon name="home" size={16} /><span class="lbl">Home</span></button>
       {#each groups as g (g.label)}
         <div class="group">{g.label}</div>
         {#each g.items as p (p.id)}
@@ -358,6 +367,7 @@
       {/if}
     </nav>
 
+    <button class="fold" onclick={toggleSide} aria-label={collapsed ? 'Expand the sidebar' : 'Collapse the sidebar'} title={collapsed ? 'Expand' : 'Collapse'}><Icon name="sidebar" size={16} /></button>
     <button class="me" aria-current={view === 'settings' ? 'page' : undefined} onclick={() => go('settings')}>
       <Icon name="settings" size={16} />
       <span class="who"><b>{identity?.name ?? '…'}</b><span>This computer{household ? ` · ${household.info.me.name}` : ''}</span></span>
@@ -379,7 +389,7 @@
       {:else if view === 'settings'}
         <SettingsView name={identity?.name ?? ''} {household} {say} onRenamed={(n) => identity && (identity = { ...identity, name: n })} onAddDevice={() => (addOpen = household ? 'show' : 'server')} onLeave={() => (leaving = true)} onCheckUpdate={() => checkUpdate(true)} />
       {:else if view === 'home'}
-        <Home {contacts} {household} {activities} {nearby} {dragging} {overId} {now} {say} onOpenDevice={(id) => go('device', id)} onAdd={() => (addOpen = household ? 'show' : 'server')} onShowActivity={() => go('activity')} onlistenDrop={(h) => (dropHandler = h)} onReveal={(p) => api.reveal(p)} onRefresh={refresh} />
+        <Home {contacts} {household} {activities} {nearby} {dragging} {overId} {now} drop={homeDrop} {say} onOpenDevice={(id) => go('device', id)} onAdd={() => (addOpen = household ? 'show' : 'server')} onShowActivity={() => go('activity')} onlistenDrop={(h) => (dropHandler = h)} onReveal={(p) => api.reveal(p)} onRefresh={refresh} />
       {:else if view === 'activity'}
         <div class="title-row"><div><h1>Activity</h1><div class="finding">What was sent and received on this computer.</div></div></div>
         <section class="card">
@@ -400,7 +410,7 @@
         <MessagesView c={selected} {say} onBack={() => go('device')} />
       {:else if selected}
         {#key selected.id}
-          <DeviceView c={selected} {dragging} ringing={isRinging(selected.id)} {say} {refresh} onUnpair={unpair} onRing={ring} onStopRing={stopRinging} onlistenDrop={(h) => (dropHandler = h)} onMessages={() => go('messages')} />
+          <DeviceView c={selected} {dragging} ringing={isRinging(selected.id)} {say} {refresh} onUnpair={unpair} onRing={ring} onStopRing={stopRinging} onlistenDrop={(h) => (dropHandler = h)} onMessages={() => go('messages')} onBack={() => go('home')} />
         {/key}
       {:else}
         <div class="center">
@@ -538,7 +548,8 @@
     flex: none;
   }
   .fold {
-    margin-left: auto;
+    align-self: flex-start;
+    margin: 6px 8px 0;
     width: 28px;
     height: 28px;
     display: grid;
@@ -565,12 +576,11 @@
     display: none;
   }
   .side.collapsed .mark {
-    flex-direction: column;
-    gap: 10px;
     padding: 0 0 14px;
   }
   .side.collapsed .fold {
-    margin: 0;
+    align-self: center;
+    margin: 6px 0 0;
   }
   .side.collapsed .nav {
     width: 100%;

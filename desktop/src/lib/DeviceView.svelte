@@ -20,7 +20,8 @@
     onRing,
     onStopRing,
     onlistenDrop,
-    onMessages
+    onMessages,
+    onBack
   }: {
     c: Contact;
     dragging: boolean;
@@ -32,6 +33,7 @@
     onStopRing: () => void;
     onlistenDrop: (h: ((paths: string[]) => void) | null) => void;
     onMessages: () => void;
+    onBack: () => void;
   } = $props();
 
   // What is about to be sent: files, text and links, all in one place.
@@ -164,10 +166,13 @@
 <svelte:window onpaste={onPaste} />
 
 <div class="layout" style="--h:{hue}">
+<div class="top">
+  <button class="back" onclick={onBack} aria-label="Back to Home" title="Back to Home"><Icon name="back" size={18} /></button>
+  <h1>{c.name}</h1>
+</div>
 <div class="hero">
   <div class="art"><Mockup kind={kindOf(c.platform, c.name)} platform={c.platform} {hue} online={c.online} battery={c.battery} size={210} fit="height" maxWidth={250} /></div>
   <div class="meta">
-    <h1>{c.name}</h1>
     <div class="line num"><span class="dot" class:on={c.online}></span>{c.online ? `Connected${c.rtt_ms !== null ? `, ${c.rtt_ms} ms` : ''}` : 'Not reachable right now'}</div>
     <div class="line"><span class="av">{(c.user_name ?? '·').slice(0, 1).toUpperCase()}</span>{ownerName(c)} · {PLATFORM[c.platform] ?? c.platform}</div>
     {#if c.battery}
@@ -276,10 +281,36 @@
   .layout {
     display: grid;
     grid-template-columns: 300px minmax(0, 1fr);
-    grid-template-areas: 'hero send' 'tools tools';
-    grid-template-rows: auto auto;
+    grid-template-areas: 'top top' 'hero send' 'tools tools';
+    grid-template-rows: auto auto auto;
     column-gap: 24px;
     align-items: start;
+  }
+  .top {
+    grid-area: top;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 18px;
+  }
+  .back {
+    width: 32px;
+    height: 32px;
+    display: grid;
+    place-items: center;
+    border-radius: var(--radius-card);
+    color: var(--muted);
+  }
+  .back:hover {
+    background: var(--raised);
+    color: var(--text);
+  }
+  .top h1 {
+    margin: 0;
+    font-size: 24px;
+    line-height: 30px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
   }
   .hero {
     grid-area: hero;
@@ -309,7 +340,7 @@
   }
   .tools {
     grid-area: tools;
-    padding: 4px 20px 8px;
+    padding: 0 20px 6px;
     border-radius: var(--radius-card);
     background: var(--surface);
     border: 1px solid var(--border);
@@ -317,15 +348,8 @@
   @media (max-width: 1000px) {
     .layout {
       grid-template-columns: 1fr;
-      grid-template-areas: 'hero' 'send' 'tools';
+      grid-template-areas: 'top' 'hero' 'send' 'tools';
     }
-  }
-  .meta h1 {
-    margin: 0 0 6px;
-    font-size: 24px;
-    line-height: 30px;
-    font-weight: 600;
-    letter-spacing: -0.01em;
   }
   .line {
     display: flex;
@@ -512,7 +536,8 @@
     clip: rect(0 0 0 0);
   }
   .sect {
-    margin: 0 0 8px;
+    margin: 0;
+    padding: 14px 0 6px;
     font-size: 16px;
     font-weight: 600;
   }

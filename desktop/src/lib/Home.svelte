@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { tick } from 'svelte';
   import Icon from '$lib/Icon.svelte';
   import ShelfGrid from '$lib/ShelfGrid.svelte';
   import SendPanel from '$lib/SendPanel.svelte';
@@ -15,6 +16,7 @@
     dragging,
     overId,
     now,
+    drop = null,
     say,
     onOpenDevice,
     onAdd,
@@ -30,6 +32,8 @@
     dragging: boolean;
     overId: string | null;
     now: number;
+    /** Files dropped on the Send or Shelf button: open it and put them there. */
+    drop?: { panel: 'send' | 'shelf'; paths: string[]; n: number } | null;
     say: (t: string, err?: boolean) => void;
     onOpenDevice: (id: string) => void;
     onAdd: () => void;
@@ -41,6 +45,19 @@
 
   // Shelf and Send open as popups.
   let panel = $state<'shelf' | 'send' | null>(null);
+  let handler: ((paths: string[]) => void) | null = null;
+  const listen = (h: ((paths: string[]) => void) | null) => {
+    handler = h;
+    onlistenDrop(h);
+  };
+  let lastDrop = 0;
+  $effect(() => {
+    if (!drop || drop.n === lastDrop) return;
+    lastDrop = drop.n;
+    const { panel: p, paths } = drop;
+    panel = p;
+    tick().then(() => handler?.(paths));
+  });
 
   // Filter the devices: everything, mine, online, or one person's.
   let filter = $state('all');
@@ -74,21 +91,19 @@
     </div>
   </div>
   <div class="actions">
-    {#if on('show_shelf')}<button class="btn btn-secondary" onclick={() => (panel = 'shelf')}><Icon name="shelf" size={15} /> Shelf</button>{/if}
-    {#if on('show_send')}<button class="btn btn-primary" onclick={() => (panel = 'send')}><Icon name="upload" size={15} /> Send</button>{/if}
+    {#if on('show_shelf')}<button class="btn btn-secondary" data-drop-panel="shelf" class:over={dragging && overId === 'panel:shelf'} onclick={() => (panel = 'shelf')}><Icon name="shelf" size={15} /> Shelf</button>{/if}
+    {#if on('show_send')}<button class="btn btn-primary" data-drop-panel="send" class:over={dragging && overId === 'panel:send'} onclick={() => (panel = 'send')}><Icon name="upload" size={15} /> Send</button>{/if}
     <button class="btn btn-secondary" onclick={onAdd}><Icon name="plus" size={15} /> Add device</button>
   </div>
 </div>
 
-{#if panel}
-  <Dialog wide title={panel === 'shelf' ? 'Your shelf' : 'Send'} onclose={() => (panel = null)}>
-    {#if panel === 'shelf'}
-      <ShelfGrid {household} {dragging} {say} {onlistenDrop} />
-    {:else}
-      <SendPanel {contacts} {nearby} {dragging} {say} refresh={onRefresh} {onlistenDrop} />
-    {/if}
+{#if panel === 'shelf'}
+  <Dialog wide title="Your shelf" onclose={() => (panel = null)}>
+    <ShelfGrid {household} {dragging} {say} onlistenDrop={listen} />
     <div class="actions"><button class="btn btn-secondary" onclick={() => (panel = null)}>Close</button></div>
   </Dialog>
+{:else if panel === 'send'}
+  <SendPanel {contacts} {nearby} {dragging} {say} refresh={onRefresh} onlistenDrop={listen} onclose={() => (panel = null)} />
 {/if}
 
 <section aria-labelledby="h-dev" class="block">
@@ -195,6 +210,9 @@
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
     gap: 14px;
+  }
+  .actions :global(.btn.over) {
+    box-shadow: 0 0 0 2px var(--hue);
   }
   .hint {
     margin-top: 8px;
