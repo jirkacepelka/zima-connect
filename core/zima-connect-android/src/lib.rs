@@ -38,7 +38,8 @@ fn rt() -> &'static Runtime {
 }
 
 fn ls() -> anyhow::Result<&'static LocalSend> {
-    LS.get().ok_or_else(|| anyhow::anyhow!("LocalSend is not running"))
+    LS.get()
+        .ok_or_else(|| anyhow::anyhow!("LocalSend is not running"))
 }
 
 fn node() -> anyhow::Result<&'static Node> {
@@ -156,7 +157,12 @@ async fn dispatch(method: &str, args_json: &str) -> anyhow::Result<Value> {
                 .into_iter()
                 .find(|p| p.fingerprint == a.id)
                 .ok_or_else(|| anyhow::anyhow!("that device is no longer nearby"))?;
-            let paths: Vec<PathBuf> = a.path.split('\n').filter(|s| !s.is_empty()).map(PathBuf::from).collect();
+            let paths: Vec<PathBuf> = a
+                .path
+                .split('\n')
+                .filter(|s| !s.is_empty())
+                .map(PathBuf::from)
+                .collect();
             l.send(&peer, &paths).await?;
             Value::Null
         }
@@ -166,7 +172,9 @@ async fn dispatch(method: &str, args_json: &str) -> anyhow::Result<Value> {
         }
         // Waits (up to 30 s) for the next LocalSend event; null when none came.
         "ls_event" => {
-            let rx = LS_EVENTS.get().ok_or_else(|| anyhow::anyhow!("LocalSend is not running"))?;
+            let rx = LS_EVENTS
+                .get()
+                .ok_or_else(|| anyhow::anyhow!("LocalSend is not running"))?;
             let mut rx = rx.lock().await;
             match tokio::time::timeout(Duration::from_secs(30), rx.recv()).await {
                 Ok(Ok(ev)) => serde_json::to_value(ev)?,

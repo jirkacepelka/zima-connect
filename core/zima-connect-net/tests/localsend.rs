@@ -35,7 +35,11 @@ async fn send_and_receive() {
         let mut got = None;
         while let Ok(e) = ev.recv().await {
             match e {
-                LsEvent::Incoming { session, from, files } => {
+                LsEvent::Incoming {
+                    session,
+                    from,
+                    files,
+                } => {
                     assert_eq!(from, "alice");
                     assert_eq!(files[0].name, "hello.txt");
                     bob.decide(&session, true).unwrap();
@@ -49,8 +53,11 @@ async fn send_and_receive() {
         }
         got.unwrap()
     });
-    a.send(&peer, &[src.clone()]).await.unwrap();
-    let (path, size) = tokio::time::timeout(Duration::from_secs(10), acc).await.unwrap().unwrap();
+    a.send(&peer, std::slice::from_ref(&src)).await.unwrap();
+    let (path, size) = tokio::time::timeout(Duration::from_secs(10), acc)
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(size as usize, payload.len());
     assert_eq!(std::fs::read_to_string(path).unwrap(), payload);
 
@@ -86,7 +93,9 @@ async fn discovery_by_multicast() {
     let a = LocalSend::start(mk("alice")).await.unwrap();
     let b = LocalSend::start(mk("bob")).await.unwrap();
     for _ in 0..20 {
-        if a.peers().iter().any(|p| p.alias == "bob") && b.peers().iter().any(|p| p.alias == "alice") {
+        if a.peers().iter().any(|p| p.alias == "bob")
+            && b.peers().iter().any(|p| p.alias == "alice")
+        {
             return;
         }
         tokio::time::sleep(Duration::from_millis(500)).await;

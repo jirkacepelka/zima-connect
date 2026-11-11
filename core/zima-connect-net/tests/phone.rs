@@ -51,14 +51,27 @@ async fn phone_line() {
     });
 
     let r = pc
-        .phone(&phone_id, PhoneOp::Dial { number: "+420123".into() })
+        .phone(
+            &phone_id,
+            PhoneOp::Dial {
+                number: "+420123".into(),
+            },
+        )
         .await
         .unwrap();
     assert_eq!(r["dialing"], "+420123");
-    assert_eq!(pc.phone(&phone_id, PhoneOp::State).await.unwrap()["state"], "idle");
+    assert_eq!(
+        pc.phone(&phone_id, PhoneOp::State).await.unwrap()["state"],
+        "idle"
+    );
     pc.phone(&phone_id, PhoneOp::HangUp).await.unwrap();
     let e = pc
-        .phone(&phone_id, PhoneOp::Dial { number: "bad".into() })
+        .phone(
+            &phone_id,
+            PhoneOp::Dial {
+                number: "bad".into(),
+            },
+        )
         .await
         .unwrap_err();
     assert!(e.to_string().contains("no signal"));
@@ -71,7 +84,13 @@ async fn phone_line() {
         .unwrap();
     let got = tokio::time::timeout(Duration::from_secs(5), async {
         loop {
-            if let Ok(Event::PhoneState { state, number, name, .. }) = pc_ev.recv().await {
+            if let Ok(Event::PhoneState {
+                state,
+                number,
+                name,
+                ..
+            }) = pc_ev.recv().await
+            {
                 return (state, number, name);
             }
         }

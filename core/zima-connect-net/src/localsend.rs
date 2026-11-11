@@ -210,7 +210,13 @@ fn safe_name(raw: &str) -> String {
     let base = raw.rsplit(['/', '\\']).next().unwrap_or("").trim();
     let cleaned: String = base
         .chars()
-        .map(|c| if c.is_control() || "<>:\"|?*".contains(c) { '_' } else { c })
+        .map(|c| {
+            if c.is_control() || "<>:\"|?*".contains(c) {
+                '_'
+            } else {
+                c
+            }
+        })
         .collect();
     let cleaned = cleaned.trim_matches('.').trim().to_string();
     if cleaned.is_empty() {
@@ -356,7 +362,9 @@ impl LocalSend {
                 let me = me.clone();
                 let acceptor = acceptor.clone();
                 tokio::spawn(async move {
-                    let Ok(tls) = acceptor.accept(sock).await else { return };
+                    let Ok(tls) = acceptor.accept(sock).await else {
+                        return;
+                    };
                     let io = TokioIo::new(tls);
                     let svc = service_fn(move |req| {
                         let me = me.clone();
@@ -402,7 +410,7 @@ impl LocalSend {
         let cutoff = now_secs().saturating_sub(PEER_TTL.as_secs());
         g.retain(|_, p| p.last_seen >= cutoff);
         let mut v: Vec<Peer> = g.values().cloned().collect();
-        v.sort_by(|a, b| a.alias.to_lowercase().cmp(&b.alias.to_lowercase()));
+        v.sort_by_key(|p| p.alias.to_lowercase());
         v
     }
 
@@ -498,7 +506,9 @@ impl LocalSend {
                     tokio::time::sleep(Duration::from_millis(500)).await;
                     continue;
                 };
-                let Ok(info) = serde_json::from_slice::<Info>(&buf[..n]) else { continue };
+                let Ok(info) = serde_json::from_slice::<Info>(&buf[..n]) else {
+                    continue;
+                };
                 if info.fingerprint == me.inner.fingerprint {
                     continue;
                 }
@@ -514,7 +524,13 @@ impl LocalSend {
                         );
                         let body = serde_json::to_vec(&me.info(None)).unwrap_or_default();
                         let _ = me
-                            .request(&peer, Method::POST, &format!("{API}/register"), full(body), Some(10))
+                            .request(
+                                &peer,
+                                Method::POST,
+                                &format!("{API}/register"),
+                                full(body),
+                                Some(10),
+                            )
                             .await;
                     });
                 }
@@ -657,14 +673,20 @@ impl LocalSend {
         };
         s.accepted = true;
         s.touched = Instant::now();
-        let tokens: HashMap<&String, &String> = s.files.iter().map(|(k, f)| (k, &f.token)).collect();
+        let tokens: HashMap<&String, &String> =
+            s.files.iter().map(|(k, f)| (k, &f.token)).collect();
         json_resp(
             StatusCode::OK,
             serde_json::json!({ "sessionId": sid, "files": tokens }),
         )
     }
 
-    async fn upload(&self, req: Request<Incoming>, query: &str, ip: IpAddr) -> Response<Full<Bytes>> {
+    async fn upload(
+        &self,
+        req: Request<Incoming>,
+        query: &str,
+        ip: IpAddr,
+    ) -> Response<Full<Bytes>> {
         let (Some(sid), Some(fid), Some(token)) = (
             query_param(query, "sessionId"),
             query_param(query, "fileId"),
@@ -674,7 +696,10 @@ impl LocalSend {
         };
         let (name, size, from) = {
             let mut g = self.inner.session.lock().unwrap();
-            let Some(s) = g.as_mut().filter(|s| s.id == sid && s.accepted && s.ip == ip) else {
+            let Some(s) = g
+                .as_mut()
+                .filter(|s| s.id == sid && s.accepted && s.ip == ip)
+            else {
                 return plain(StatusCode::FORBIDDEN);
             };
             let Some(f) = s.files.get(&fid).filter(|f| f.token == token && !f.done) else {
@@ -735,7 +760,11 @@ impl LocalSend {
                 };
                 let _ = self.inner.events.send(LsEvent::Received {
                     from,
-                    name: dest.file_name().and_then(|n| n.to_str()).unwrap_or("file").into(),
+                    name: dest
+                        .file_name()
+                        .and_then(|n| n.to_str())
+                        .unwrap_or("file")
+                        .into(),
                     path: dest.to_string_lossy().into(),
                     size: got,
                 });
@@ -770,12 +799,10 @@ impl LocalSend {
             .header("content-type", "application/json")
             .body(body)?;
         let work = async {
-            let tcp = tokio::time::timeout(
-                Duration::from_secs(5),
-                TcpStream::connect((ip, peer.port)),
-            )
-            .await
-            .map_err(|_| anyhow!("{} did not answer", peer.alias))??;
+            let tcp =
+                tokio::time::timeout(Duration::from_secs(5), TcpStream::connect((ip, peer.port)))
+                    .await
+                    .map_err(|_| anyhow!("{} did not answer", peer.alias))??;
             if peer.https {
                 let tls = TlsConnector::from(self.inner.tls_client.clone())
                     .connect(ServerName::IpAddress(ip.into()), tcp)
@@ -835,7 +862,9 @@ impl LocalSend {
             StatusCode::OK => {}
             StatusCode::NO_CONTENT => return Ok(()),
             StatusCode::FORBIDDEN => bail!("{} declined the files", peer.alias),
-            StatusCode::UNAUTHORIZED => bail!("{} needs a PIN, which is not supported yet", peer.alias),
+            StatusCode::UNAUTHORIZED => {
+                bail!("{} needs a PIN, which is not supported yet", peer.alias)
+            }
             StatusCode::CONFLICT => bail!("{} is busy with another transfer", peer.alias),
             s => bail!("{} answered with {s}", peer.alias),
         }
@@ -847,7 +876,9 @@ impl LocalSend {
         }
         let acc: Accepted = serde_json::from_slice(&resp).context("unexpected answer")?;
         for (id, path) in order {
-            let Some(token) = acc.files.get(&id) else { continue };
+            let Some(token) = acc.files.get(&id) else {
+                continue;
+            };
             let file = tokio::fs::File::open(&path).await?;
             let stream = tokio_util::io::ReaderStream::new(file).map_ok(Frame::data);
             let body: Body = StreamBody::new(stream).boxed();

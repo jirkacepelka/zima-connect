@@ -10,9 +10,9 @@
 //!   policy between people; devices find and authorise each other from it.
 //! * **Direct pairing** (no server): [`Node::pairing_ticket`] / [`Node::pair`].
 
-pub mod localsend;
 mod household;
 mod hub;
+pub mod localsend;
 mod mailbox;
 mod proto;
 mod seal;
