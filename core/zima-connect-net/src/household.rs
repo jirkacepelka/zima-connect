@@ -28,10 +28,12 @@ pub enum Cap {
     Status,
     /// Read and send text messages (SMS) of a phone.
     Sms,
+    /// See and control a phone's screen.
+    Screen,
 }
 
 impl Cap {
-    pub const ALL: [Cap; 8] = [
+    pub const ALL: [Cap; 9] = [
         Cap::Files,
         Cap::Clipboard,
         Cap::Notifications,
@@ -40,6 +42,7 @@ impl Cap {
         Cap::Remote,
         Cap::Status,
         Cap::Sms,
+        Cap::Screen,
     ];
 
     /// Between two *different* people only these are allowed unless a rule says otherwise.

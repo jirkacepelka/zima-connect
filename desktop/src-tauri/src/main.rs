@@ -236,7 +236,7 @@ fn main() {
                             let _ = handle.emit("sms-received", ());
                         }
                         Event::SmsRequest { .. } => {}
-                        Event::PhoneRequest { .. } => {}
+                        Event::PhoneRequest { .. } | Event::ScreenRequest { .. } => {}
                         Event::PhoneState { from, from_name, state: st, number, name } => {
                             if !state.settings.lock().unwrap().phone_calls { continue; }
                             let who = name.clone().unwrap_or_else(|| number.clone());
@@ -317,6 +317,7 @@ fn main() {
             commands::sms_thread,
             commands::sms_send,
             commands::phone_op,
+            commands::screen_op,
             commands::app_version,
             commands::open_external,
             commands::ls_peers,

@@ -52,6 +52,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
@@ -184,7 +185,205 @@ fun HomePage(onOpen: (String) -> Unit, onAdd: () -> Unit, onHousehold: () -> Uni
         }
     }
 
-    var tab by remember { mutableStateOf("shelf") }
+    val people = contacts.filter { !it.mine && it.userName != null }.mapNotNull { it.userName }.distinct()
+    val shown = contacts.filter {
+        when (filter) {
+            "all" -> true
+            "mine" -> it.mine
+            "online" -> it.online
+            else -> it.userName == filter
+        }
+    }
+    val online = contacts.count { it.online }
+
+    LazyColumn(contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 4.dp, bottom = 110.dp)) {
+        item {
+            Text(
+                if (contacts.isEmpty()) "No other devices yet" else "$online of ${contacts.size} ${if (contacts.size == 1) "device" else "devices"} online",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+
+        // ── shelf
+        item {
+            SectionTitle("Your shelf") {
+                TextButton(onClick = { pick() }, enabled = household != null && !uploading) {
+                    Icon(Icons.Outlined.Add, null, Modifier.size(18.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text(if (uploading) "Uploading…" else "Add files")
+                }
+            }
+            if (household == null) {
+                Text("The shelf lives on your Zima Connect server. Join the server first.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            } else if (AppModel.shelf.isEmpty()) {
+                Column(
+                    Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).border(1.5.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(18.dp)).clickable { pick() }.padding(24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Text("Keep a file here", style = MaterialTheme.typography.titleSmall)
+                    Text(
+                        "Put a file on the shelf on one device and pick it up on another. Only you see it.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            } else {
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    items(AppModel.shelf, key = { it.id }) { i ->
+                        Column(Modifier.width(128.dp).clickable { preview = i }) {
+                            ShelfThumb(i, Modifier.fillMaxWidth().aspectRatio(4f / 3f))
+                            Spacer(Modifier.height(6.dp))
+                            Text(i.name, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(sizeLabel(i.size), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                }
+            }
+        }
+
+        // ── devices
+        item {
+            SectionTitle("Devices")
+            if (contacts.size > 1) {
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(bottom = 12.dp)) {
+                    val chips = buildList { add("all" to "All"); add("mine" to "Mine"); people.forEach { add(it to it) }; add("online" to "Online") }
+                    items(chips) { (k, label) ->
+                        FilterChip(selected = filter == k, onClick = { filter = k }, label = { Text(label) })
+                    }
+                }
+            }
+        }
+        if (contacts.isEmpty()) {
+            item {
+                Column(Modifier.fillMaxWidth().padding(vertical = 24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Box(Modifier.size(64.dp).clip(CircleShape).background(MaterialTheme.colorScheme.surfaceVariant), contentAlignment = Alignment.Center) {
+                        Icon(Icons.Outlined.Smartphone, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    Spacer(Modifier.height(16.dp))
+                    if (household == null) {
+                        Text("Connect your devices", style = MaterialTheme.typography.titleLarge)
+                        Spacer(Modifier.height(6.dp))
+                        Text(
+                            "Join your Zima Connect server once and your devices find each other automatically. No account or domain.",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Spacer(Modifier.height(20.dp))
+                        Button(onClick = onAdd) { Text("Join server") }
+                    } else {
+                        Text("You are in ${household.name}", style = MaterialTheme.typography.titleLarge)
+                        Spacer(Modifier.height(6.dp))
+                        Text("No other devices yet.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Spacer(Modifier.height(20.dp))
+                        Button(onClick = onHousehold) { Text("Open household") }
+                    }
+                }
+            }
+        } else {
+            items(shown.chunked(2), key = { row -> row.joinToString { it.id } }) { row ->
+                Row(Modifier.fillMaxWidth().padding(bottom = 6.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    row.forEach { c -> DeviceCard(c, dark, Modifier.weight(1f)) { onOpen(c.id) } }
+                    if (row.size == 1) Spacer(Modifier.weight(1f))
+                }
+            }
+        }
+
+    }
+
+    preview?.let { i ->
+        AlertDialog(
+            onDismissRequest = { preview = null },
+            title = { Text(i.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+            text = {
+                Column {
+                    ShelfThumb(i, Modifier.fillMaxWidth().height(300.dp), big = true)
+                    Spacer(Modifier.height(8.dp))
+                    Text(sizeLabel(i.size), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            },
+            confirmButton = {
+                Button(onClick = {
+                    preview = null
+                    scope.launch {
+                        try {
+                            val path = AppModel.shelfGet(i)
+                            say("Saved in ${saveToPublicDownloads(ctx, File(path), i.name)}")
+                        } catch (e: Throwable) {
+                            say(e.message ?: "Could not download")
+                        }
+                    }
+                }) {
+                    Icon(Icons.Outlined.Download, null, Modifier.size(18.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("Save")
+                }
+            },
+            dismissButton = {
+                Row {
+                    TextButton(onClick = {
+                        preview = null
+                        scope.launch { runCatching { AppModel.shelfDelete(i) }.onFailure { say(it.message ?: "Could not remove") } }
+                    }) { Text("Remove", color = MaterialTheme.colorScheme.error) }
+                    TextButton(onClick = { preview = null }) { Text("Close") }
+                }
+            },
+        )
+    }
+}
+
+@Composable
+private fun DeviceCard(c: Contact, dark: Boolean, modifier: Modifier, onClick: () -> Unit) {
+    val hue = hueOf(c)
+    Column(
+        modifier.clip(RoundedCornerShape(22.dp)).clickable(onClick = onClick).padding(horizontal = 6.dp, vertical = 8.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Box(Modifier.fillMaxWidth().height(128.dp), contentAlignment = Alignment.Center) {
+            DeviceArt(kindOf(c.platform, c.name), hue, c.online, c.battery, Modifier.size(112.dp).then(if (c.online) Modifier else Modifier.alpha(0.5f)))
+        }
+        Spacer(Modifier.height(6.dp))
+        Text(c.name, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.size(14.dp).clip(CircleShape).background(Color.hsl(hue, .6f, if (dark) .35f else .62f)))
+            Spacer(Modifier.width(6.dp))
+            Text(
+                (if (c.mine) "You" else c.userName ?: "Paired directly"),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.size(7.dp).clip(CircleShape).background(if (c.online) Ok else MaterialTheme.colorScheme.outlineVariant))
+            Spacer(Modifier.width(6.dp))
+            Text(
+                if (c.online) "Connected${c.rttMs?.let { ", $it ms" } ?: ""}" else "Offline",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.weight(1f),
+                maxLines = 1,
+            )
+            c.battery?.let { Text("${it.first} %${if (it.second) " ⚡" else ""}", style = MaterialTheme.typography.bodySmall) }
+        }
+    }
+}
+
+/** Returns a function that opens the system file picker and calls [onPicked] with the result. */
+@Composable
+internal fun rememberLauncherForFile(onPicked: (android.net.Uri) -> Unit): () -> Unit {
+    val launcher = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) onPicked(uri)
+    }
+    return { launcher.launch(arrayOf("*/*")) }
+}
+
+/** The Send tab: pick a file, then pick who gets it. */
+@Composable
+fun SendPage(say: (String) -> Unit) {
+    val ctx = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val contacts = AppModel.contacts
     var outgoing by remember { mutableStateOf<Pair<File, String>?>(null) }
     val pickSend = rememberLauncherForFile { uri ->
         scope.launch {
@@ -242,232 +441,45 @@ fun HomePage(onOpen: (String) -> Unit, onAdd: () -> Unit, onHousehold: () -> Uni
         )
     }
 
-    val people = contacts.filter { !it.mine && it.userName != null }.mapNotNull { it.userName }.distinct()
-    val shown = contacts.filter {
-        when (filter) {
-            "all" -> true
-            "mine" -> it.mine
-            "online" -> it.online
-            else -> it.userName == filter
-        }
-    }
-    val online = contacts.count { it.online }
 
-    LazyColumn(contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 4.dp, bottom = 110.dp)) {
-        item {
-            Text(
-                if (contacts.isEmpty()) "No other devices yet" else "$online of ${contacts.size} ${if (contacts.size == 1) "device" else "devices"} online",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-
-        // ── shelf and send: the main part of the page
-        item {
-          Column(Modifier.fillMaxWidth().border(1.5.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(22.dp)).padding(16.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 12.dp)) {
-                FilterChip(selected = tab == "shelf", onClick = { tab = "shelf" }, label = { Text("Shelf") })
-                Spacer(Modifier.width(8.dp))
-                FilterChip(selected = tab == "send", onClick = { tab = "send" }, label = { Text("Send") })
-                Spacer(Modifier.weight(1f))
-                if (tab == "shelf") {
-                    TextButton(onClick = { pick() }, enabled = household != null && !uploading) {
-                        Icon(Icons.Outlined.Add, null, Modifier.size(18.dp))
-                        Spacer(Modifier.width(6.dp))
-                        Text(if (uploading) "Uploading…" else "Add files")
-                    }
-                }
-            }
-            if (tab == "send") {
-                Column(
-                    Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).border(1.5.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(14.dp)).clickable { pickSend() }.padding(28.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                ) {
-                    Text("Choose a file to send", style = MaterialTheme.typography.titleSmall)
-                    Text(
-                        "Then pick which device gets it. Devices nearby with LocalSend are there too.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            } else if (household == null) {
-                Text(
-                    "The shelf lives on your Zima Connect server. Join the server first.",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            } else if (AppModel.shelf.isEmpty()) {
-                Column(
-                    Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).border(1.5.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(14.dp)).clickable { pick() }.padding(28.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                ) {
-                    Text("Keep a file here", style = MaterialTheme.typography.titleSmall)
-                    Text(
-                        "Put a file on the shelf on one device and pick it up on another. Only you see it.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            } else {
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    items(AppModel.shelf, key = { it.id }) { i ->
-                        Column(Modifier.width(128.dp).clickable { preview = i }) {
-                            ShelfThumb(i, Modifier.fillMaxWidth().aspectRatio(4f / 3f))
-                            Spacer(Modifier.height(6.dp))
-                            Text(i.name, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            Text(sizeLabel(i.size), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                    }
-                }
-            }
-          }
-        }
-
-        // ── devices
-        item {
-            SectionTitle("Devices")
-            if (contacts.size > 1) {
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(bottom = 12.dp)) {
-                    val chips = buildList { add("all" to "All"); add("mine" to "Mine"); people.forEach { add(it to it) }; add("online" to "Online") }
-                    items(chips) { (k, label) ->
-                        FilterChip(selected = filter == k, onClick = { filter = k }, label = { Text(label) })
-                    }
-                }
-            }
-        }
-        if (contacts.isEmpty()) {
-            item {
-                Column(Modifier.fillMaxWidth().padding(vertical = 24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Box(Modifier.size(64.dp).clip(CircleShape).background(MaterialTheme.colorScheme.surfaceVariant), contentAlignment = Alignment.Center) {
-                        Icon(Icons.Outlined.Smartphone, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                    Spacer(Modifier.height(16.dp))
-                    if (household == null) {
-                        Text("Connect your devices", style = MaterialTheme.typography.titleLarge)
-                        Spacer(Modifier.height(6.dp))
-                        Text(
-                            "Join your Zima Connect server once and your devices find each other automatically. No account or domain.",
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        Spacer(Modifier.height(20.dp))
-                        Button(onClick = onAdd) { Text("Join server") }
-                    } else {
-                        Text("You are in ${household.name}", style = MaterialTheme.typography.titleLarge)
-                        Spacer(Modifier.height(6.dp))
-                        Text("No other devices yet.", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Spacer(Modifier.height(20.dp))
-                        Button(onClick = onHousehold) { Text("Open household") }
-                    }
-                }
-            }
-        } else {
-            items(shown.chunked(2), key = { row -> row.joinToString { it.id } }) { row ->
-                Row(Modifier.fillMaxWidth().padding(bottom = 16.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                    row.forEach { c -> DeviceCard(c, dark, Modifier.weight(1f)) { onOpen(c.id) } }
-                    if (row.size == 1) Spacer(Modifier.weight(1f))
-                }
-            }
-        }
-
-        // ── activity
-        if (AppModel.activities.isNotEmpty()) {
-            item { SectionTitle("Activity") }
-            items(AppModel.activities.take(6)) { a ->
-                Column(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
-                    Row {
-                        Text(a.title, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
-                        Text(ago(a.ts), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                    if (a.detail.isNotEmpty()) Text(a.detail, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            }
-        }
-    }
-
-    preview?.let { i ->
-        AlertDialog(
-            onDismissRequest = { preview = null },
-            title = { Text(i.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-            text = {
-                Column {
-                    ShelfThumb(i, Modifier.fillMaxWidth().height(300.dp), big = true)
-                    Spacer(Modifier.height(8.dp))
-                    Text(sizeLabel(i.size), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            },
-            confirmButton = {
-                Button(onClick = {
-                    preview = null
-                    scope.launch {
-                        try {
-                            val path = AppModel.shelfGet(i)
-                            say("Saved in ${saveToPublicDownloads(ctx, File(path), i.name)}")
-                        } catch (e: Throwable) {
-                            say(e.message ?: "Could not download")
-                        }
-                    }
-                }) {
-                    Icon(Icons.Outlined.Download, null, Modifier.size(18.dp))
-                    Spacer(Modifier.width(6.dp))
-                    Text("Save")
-                }
-            },
-            dismissButton = {
-                Row {
-                    TextButton(onClick = {
-                        preview = null
-                        scope.launch { runCatching { AppModel.shelfDelete(i) }.onFailure { say(it.message ?: "Could not remove") } }
-                    }) { Text("Remove", color = MaterialTheme.colorScheme.error) }
-                    TextButton(onClick = { preview = null }) { Text("Close") }
-                }
-            },
+    Column(Modifier.fillMaxSize().padding(horizontal = 20.dp, vertical = 8.dp)) {
+        Text(
+            "Goes straight to the device you pick. Nothing is kept.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-    }
-}
-
-@Composable
-private fun DeviceCard(c: Contact, dark: Boolean, modifier: Modifier, onClick: () -> Unit) {
-    val hue = hueOf(c)
-    Column(modifier.clip(RoundedCornerShape(16.dp)).clickable(onClick = onClick)) {
-        Box(
-            Modifier.fillMaxWidth().height(138.dp).clip(RoundedCornerShape(16.dp))
-                .background(if (c.online) tintBg(hue, dark) else MaterialTheme.colorScheme.surfaceVariant),
-            contentAlignment = Alignment.Center,
+        Spacer(Modifier.height(16.dp))
+        Column(
+            Modifier.fillMaxWidth().clip(RoundedCornerShape(22.dp)).border(1.5.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(22.dp)).clickable { pickSend() }.padding(vertical = 56.dp, horizontal = 24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            DeviceArt(kindOf(c.platform, c.name), hue, c.online, c.battery, Modifier.size(118.dp))
-        }
-        Spacer(Modifier.height(8.dp))
-        Text(c.name, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.size(14.dp).clip(CircleShape).background(Color.hsl(hue, .6f, if (dark) .35f else .62f)))
-            Spacer(Modifier.width(6.dp))
+            Icon(Icons.Outlined.Add, null, Modifier.size(28.dp))
+            Spacer(Modifier.height(8.dp))
+            Text("Choose a file to send", style = MaterialTheme.typography.titleMedium)
             Text(
-                (if (c.mine) "You" else c.userName ?: "Paired directly"),
+                "Then pick which device gets it. Devices nearby with LocalSend or Quick Share are listed too.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
             )
-        }
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.size(7.dp).clip(CircleShape).background(if (c.online) Ok else MaterialTheme.colorScheme.outlineVariant))
-            Spacer(Modifier.width(6.dp))
-            Text(
-                if (c.online) "Connected${c.rttMs?.let { ", $it ms" } ?: ""}" else "Offline",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.weight(1f),
-                maxLines = 1,
-            )
-            c.battery?.let { Text("${it.first} %${if (it.second) " ⚡" else ""}", style = MaterialTheme.typography.bodySmall) }
         }
     }
 }
 
-/** Returns a function that opens the system file picker and calls [onPicked] with the result. */
+/** What was sent and received lately. */
 @Composable
-internal fun rememberLauncherForFile(onPicked: (android.net.Uri) -> Unit): () -> Unit {
-    val launcher = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri != null) onPicked(uri)
+fun ActivityScreen() {
+    LazyColumn(contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 4.dp, bottom = 24.dp)) {
+        if (AppModel.activities.isEmpty()) {
+            item { Text("Nothing yet. Things you send and receive show up here.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        }
+        items(AppModel.activities) { a ->
+            Column(Modifier.fillMaxWidth().padding(vertical = 10.dp)) {
+                Row {
+                    Text(a.title, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+                    Text(ago(a.ts), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                if (a.detail.isNotEmpty()) Text(a.detail, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
     }
-    return { launcher.launch(arrayOf("*/*")) }
 }

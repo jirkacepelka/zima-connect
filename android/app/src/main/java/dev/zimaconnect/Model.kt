@@ -66,6 +66,7 @@ val CAPS = listOf(
     "remote" to "Remote control",
     "status" to "Battery and status",
     "sms" to "Text messages",
+    "screen" to "Phone screen",
 )
 
 data class ShelfItem(

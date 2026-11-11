@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount, type Snippet } from 'svelte';
 
-  let { title, onclose, children }: { title: string; onclose: () => void; children: Snippet } = $props();
+  let { title, onclose, wide = false, children }: { title: string; onclose: () => void; wide?: boolean; children: Snippet } = $props();
 
   let box: HTMLDivElement;
   let previous: HTMLElement | null = null;
@@ -37,7 +37,7 @@
 </script>
 
 <div class="overlay" role="presentation" onmousedown={(e) => e.target === e.currentTarget && onclose()}>
-  <div class="sheet" role="dialog" aria-modal="true" aria-label={title} tabindex="-1" bind:this={box} onkeydown={key}>
+  <div class="sheet" role="dialog" aria-modal="true" aria-label={title} class:wide tabindex="-1" bind:this={box} onkeydown={key}>
     <h3>{title}</h3>
     {@render children()}
   </div>
@@ -52,6 +52,10 @@
     place-items: center;
     z-index: 50;
     padding: 20px;
+  }
+  .sheet.wide {
+    width: min(760px, 100%);
+    min-height: 380px;
   }
   .sheet {
     width: min(460px, 100%);

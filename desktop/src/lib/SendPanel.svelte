@@ -139,13 +139,16 @@
 </script>
 
 <div class="send" class:over={dragging}>
+  <div class="panel-head">
+    <span class="meta">Goes straight to the device you pick · nothing is kept</span>
+    <button class="btn btn-primary" onclick={choose}><Icon name="plus" size={15} /> Add files…</button>
+  </div>
   {#if staged.length === 0}
-    <div class="zone" class:over={dragging}>
-      <Icon name="upload" size={28} />
-      <b>Drop files here to send them</b>
-      <span class="sub">or choose them, or paste text or a link. You pick where it goes next.</span>
+    <div class="dropzone" class:over={dragging}>
+      <Icon name="upload" size={22} />
+      <b>Drop files here</b>
+      <span class="sub">Or paste text or a link. You pick who gets it next.</span>
       <div class="btns">
-        <button class="btn btn-primary" onclick={choose}>Choose files…</button>
         <button class="btn btn-secondary" onclick={async () => { try { addText(await navigator.clipboard.readText()); } catch { say('Could not read the clipboard', true); } }}>Paste from clipboard</button>
       </div>
     </div>
@@ -163,7 +166,6 @@
     </ul>
     <form class="add" onsubmit={(e) => { e.preventDefault(); addText(draft); }}>
       <input class="field" bind:value={draft} placeholder="Add text or a link" aria-label="Text or link to add" autocomplete="off" />
-      <button type="button" class="btn btn-secondary" onclick={choose}>Add files…</button>
       <button type="button" class="btn btn-primary" disabled={sending || !readyCount} onclick={() => (picking = true)}>{sending ? 'Sending…' : `Send ${readyCount}…`}</button>
     </form>
   {/if}

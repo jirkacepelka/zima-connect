@@ -61,6 +61,11 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.LocalContentColor
+import androidx.compose.material.icons.outlined.History
+import androidx.compose.material.icons.outlined.Home
+import androidx.compose.material.icons.automirrored.outlined.Send
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Switch
@@ -105,6 +110,8 @@ sealed interface Screen {
     data class Device(val id: String) : Screen
     data object Household : Screen
     data object Shelf : Screen
+    data object Send : Screen
+    data object Activity : Screen
     data object Settings : Screen
 }
 
@@ -195,52 +202,35 @@ fun App(shared: List<Uri>, clearShared: () -> Unit) {
 
     BackHandler(enabled = screen !is Screen.Home) { screen = Screen.Home }
 
-    val title = when (val s = screen) {
-        Screen.Home -> "Zima Connect"
-        is Screen.Device -> AppModel.contacts.firstOrNull { it.id == s.id }?.name ?: "Device"
-        Screen.Household -> AppModel.household?.name ?: "Household"
-        Screen.Shelf -> "Shelf"
-        Screen.Settings -> "Settings"
-    }
-
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         snackbarHost = { SnackbarHost(snack) },
         topBar = {
             TopAppBar(
-                title = { Text(title, style = MaterialTheme.typography.titleLarge) },
+                title = { Text("Zima Connect", style = MaterialTheme.typography.titleLarge) },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background),
-                navigationIcon = {
-                    if (screen !is Screen.Home) {
-                        IconButton(onClick = { screen = Screen.Home }) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                actions = {
+                    IconButton(onClick = { screen = Screen.Activity }) {
+                        Icon(Icons.Outlined.History, contentDescription = "Activity", tint = if (screen is Screen.Activity) Accent else LocalContentColor.current)
+                    }
+                    if (AppModel.household != null) {
+                        IconButton(onClick = { screen = Screen.Household }) {
+                            Icon(Icons.Outlined.Groups, contentDescription = "People", tint = if (screen is Screen.Household) Accent else LocalContentColor.current)
                         }
                     }
-                },
-                actions = {
-                    if (screen is Screen.Home) {
-                        if (AppModel.household != null) {
-                            IconButton(onClick = { screen = Screen.Household }) {
-                                Icon(Icons.Outlined.Groups, contentDescription = "Household")
-                            }
-                        }
-                        IconButton(onClick = { screen = Screen.Settings }) {
-                            Icon(Icons.Outlined.Settings, contentDescription = "Settings")
-                        }
+                    IconButton(onClick = { screen = Screen.Settings }) {
+                        Icon(Icons.Outlined.Settings, contentDescription = "Settings", tint = if (screen is Screen.Settings) Accent else LocalContentColor.current)
                     }
                 },
             )
         },
-        floatingActionButton = {
-            if (screen is Screen.Home && AppModel.contacts.isNotEmpty()) {
-                ExtendedFloatingActionButton(
-                    onClick = { addOpen = true },
-                    icon = { Icon(Icons.Outlined.Add, null) },
-                    text = { Text("Add device") },
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    contentColor = MaterialTheme.colorScheme.onPrimary,
-                )
-            }
+        bottomBar = {
+            BottomSwitch(
+                sendSelected = screen is Screen.Send,
+                onHome = { screen = Screen.Home },
+                onSend = { screen = Screen.Send },
+                onAdd = { addOpen = true },
+            )
         },
     ) { pad ->
         Column(Modifier.padding(pad).fillMaxSize()) {
@@ -272,6 +262,8 @@ fun App(shared: List<Uri>, clearShared: () -> Unit) {
                 }
                 Screen.Household -> HouseholdScreen(::say) { code, label -> invite = code to label }
                 Screen.Shelf -> ShelfScreen(::say)
+                Screen.Send -> SendPage(::say)
+                Screen.Activity -> ActivityScreen()
                 Screen.Settings -> SettingsScreen(::say) { screen = Screen.Home }
             }
         }
@@ -287,6 +279,40 @@ fun App(shared: List<Uri>, clearShared: () -> Unit) {
             onDone = clearShared,
             say = ::say,
         )
+    }
+}
+
+/** Home | Send, and the way to add a device. Shown on every screen. */
+@Composable
+private fun BottomSwitch(sendSelected: Boolean, onHome: () -> Unit, onSend: () -> Unit, onAdd: () -> Unit) {
+    @Composable
+    fun Seg(label: String, icon: androidx.compose.ui.graphics.vector.ImageVector, on: Boolean, click: () -> Unit) {
+        Row(
+            Modifier.clip(CircleShape)
+                .background(if (on) MaterialTheme.colorScheme.surface else Color.Transparent)
+                .clickable(onClick = click)
+                .padding(horizontal = 18.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(icon, null, Modifier.size(18.dp), tint = if (on) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant)
+            Spacer(Modifier.width(8.dp))
+            Text(label, style = MaterialTheme.typography.labelLarge, color = if (on) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+    Row(
+        Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.background).navigationBarsPadding().padding(horizontal = 16.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Row(Modifier.clip(CircleShape).background(MaterialTheme.colorScheme.surfaceVariant).padding(4.dp)) {
+            Seg("Home", Icons.Outlined.Home, !sendSelected, onHome)
+            Seg("Send", Icons.AutoMirrored.Outlined.Send, sendSelected, onSend)
+        }
+        Spacer(Modifier.weight(1f))
+        Button(onClick = onAdd) {
+            Icon(Icons.Outlined.Add, null, Modifier.size(18.dp))
+            Spacer(Modifier.width(6.dp))
+            Text("Add device")
+        }
     }
 }
 
@@ -471,6 +497,8 @@ private fun SettingsScreen(say: (String) -> Unit, onLeft: () -> Unit) {
             SmsCard(say)
             Spacer(Modifier.height(12.dp))
             PhoneCard(say)
+            Spacer(Modifier.height(12.dp))
+            ScreenCard(say)
             Spacer(Modifier.height(16.dp))
             RenameCard(say)
             if (AppModel.household != null) {

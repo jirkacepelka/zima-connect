@@ -3,6 +3,8 @@
   import Icon from '$lib/Icon.svelte';
   import Mockup from '$lib/Mockup.svelte';
   import RemotePad from '$lib/RemotePad.svelte';
+  import ScreenView from '$lib/ScreenView.svelte';
+  import Dialog from '$lib/Dialog.svelte';
   import { dial } from '$lib/phone.svelte';
   import { on } from '$lib/prefs.svelte';
   import { api, errText, type Cap, type Contact } from '$lib/api';
@@ -39,6 +41,7 @@
   let draft = $state('');
   let sending = $state(false);
   let remoteOpen = $state(false);
+  let screenOpen = $state(false);
   let dialOpen = $state(false);
   let number = $state('');
   async function placeCall() {
@@ -151,7 +154,7 @@
 
 <div class="layout" style="--h:{hue}">
 <div class="hero">
-  <div class="art"><Mockup kind={kindOf(c.platform, c.name)} platform={c.platform} {hue} online={c.online} battery={c.battery} size={250} /></div>
+  <div class="art"><Mockup kind={kindOf(c.platform, c.name)} platform={c.platform} {hue} online={c.online} battery={c.battery} size={210} fit="height" /></div>
   <div class="meta">
     <h1>{c.name}</h1>
     <div class="line num"><span class="dot" class:on={c.online}></span>{c.online ? `Connected${c.rtt_ms !== null ? `, ${c.rtt_ms} ms` : ''}` : 'Not reachable right now'}</div>
@@ -238,6 +241,13 @@
       <div class="sub dialnote">The phone makes the call. You can talk on it, or <button class="link" type="button" onclick={() => api.bluetoothSettings().catch((e) => say(errText(e), true))}>connect it to this computer by Bluetooth</button> to talk here.</div>
     {/if}
   {/if}
+  {#if c.platform === 'android'}
+    <div class="row slim">
+      <Icon name="phone" size={18} />
+      <div class="grow"><div class="name">Phone screen</div><div class="sub">{can('screen') ? 'See it here and use it with your mouse' : why('screen')}</div></div>
+      <button class="btn btn-secondary" disabled={!can('screen')} onclick={() => (screenOpen = true)}>Open</button>
+    </div>
+  {/if}
   <div class="row slim">
     <Icon name="bell" size={18} />
     <div class="grow"><div class="name">Find device</div><div class="sub">{can('ring') ? (ringing ? 'Ringing, stops after 30 s' : 'Make it ring') : why('ring')}</div></div>
@@ -256,45 +266,64 @@
 </section>
 </div>
 
+{#if screenOpen}
+  <Dialog wide title="{c.name}: screen" onclose={() => (screenOpen = false)}>
+    <ScreenView peerId={c.id} name={c.name} {say} />
+    <div class="actions"><button class="btn btn-secondary" onclick={() => (screenOpen = false)}>Close</button></div>
+  </Dialog>
+{/if}
+
 <style>
   /* The device on the left, what you do with it on the right. */
   .layout {
     display: grid;
-    grid-template-columns: 280px minmax(0, 1fr);
+    grid-template-columns: 300px minmax(0, 1fr);
     grid-template-areas: 'hero send' 'tools send';
     grid-template-rows: auto 1fr;
-    column-gap: 44px;
+    column-gap: 24px;
     align-items: start;
   }
   .hero {
     grid-area: hero;
     display: flex;
     flex-direction: column;
-    gap: 18px;
-    margin-bottom: 28px;
+    gap: 14px;
+    margin-bottom: 20px;
+    padding: 22px 20px 20px;
+    border-radius: 22px;
+    background: var(--surface);
+    box-shadow: 0 1px 2px rgb(0 0 0 / 0.04), 0 10px 30px -18px rgb(0 0 0 / 0.3);
   }
   .art {
     display: grid;
     place-items: center;
-    padding: 26px 0 18px;
-    border-radius: 20px;
-    background: hsl(var(--h) 40% 95%);
+    padding: 10px 0 6px;
+  }
+  .meta {
+    text-align: center;
+  }
+  .meta .line,
+  .meta .battery {
+    justify-content: center;
   }
   .send {
     grid-area: send;
+    padding: 22px;
+    border-radius: 22px;
+    background: var(--surface);
+    box-shadow: 0 1px 2px rgb(0 0 0 / 0.04), 0 10px 30px -18px rgb(0 0 0 / 0.3);
   }
   .tools {
     grid-area: tools;
+    padding: 8px 20px 14px;
+    border-radius: 22px;
+    background: var(--surface);
+    box-shadow: 0 1px 2px rgb(0 0 0 / 0.04), 0 10px 30px -18px rgb(0 0 0 / 0.3);
   }
   @media (max-width: 1000px) {
     .layout {
       grid-template-columns: 1fr;
       grid-template-areas: 'hero' 'send' 'tools';
-    }
-  }
-  @media (prefers-color-scheme: dark) {
-    .art {
-      background: hsl(var(--h) 22% 11%);
     }
   }
   .meta h1 {

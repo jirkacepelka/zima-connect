@@ -132,6 +132,12 @@ pub async fn phone_op(peer_id: String, op: PhoneOp, state: State<'_, SharedState
     }
 }
 
+/// Look at or control a phone's screen: { op: "status" } | { op: "frame", max_width } | tap | hold | swipe | { op: "key", name }.
+#[tauri::command]
+pub async fn screen_op(peer_id: String, op: zima_connect_net::ScreenOp, state: State<'_, SharedState>) -> Result<serde_json::Value, String> {
+    state.node.screen(&peer_id, op).await.map_err(|e| format!("{e:#}"))
+}
+
 /// The conversations of a phone's text messages.
 #[tauri::command]
 pub async fn sms_threads(peer_id: String, state: State<'_, SharedState>) -> Result<serde_json::Value, String> {

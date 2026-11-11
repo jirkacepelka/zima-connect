@@ -1,8 +1,9 @@
 import { invoke } from '@tauri-apps/api/core';
 
 export type Delivery = 'delivered' | 'queued';
+export type ScreenOp = { op: 'status' } | { op: 'frame'; max_width: number | null } | { op: 'tap'; x: number; y: number } | { op: 'hold'; x: number; y: number } | { op: 'swipe'; x1: number; y1: number; x2: number; y2: number; ms: number } | { op: 'key'; name: 'back' | 'home' | 'recents' | 'notifications' };
 export type PhoneOp = { op: 'dial'; number: string } | { op: 'answer' } | { op: 'decline' } | { op: 'hang_up' } | { op: 'mute'; on: boolean } | { op: 'state' };
-export type Cap = 'files' | 'clipboard' | 'notifications' | 'ring' | 'calls' | 'remote' | 'status' | 'sms';
+export type Cap = 'files' | 'clipboard' | 'notifications' | 'ring' | 'calls' | 'remote' | 'status' | 'sms' | 'screen';
 export const CAPS: { id: Cap; label: string; hint: string }[] = [
   { id: 'files', label: 'Files and photos', hint: 'Send files' },
   { id: 'clipboard', label: 'Clipboard', hint: 'Send clipboard text' },
@@ -11,7 +12,8 @@ export const CAPS: { id: Cap; label: string; hint: string }[] = [
   { id: 'calls', label: 'Phone calls', hint: 'Dial and answer through a phone' },
   { id: 'remote', label: 'Remote control', hint: 'Touchpad, keyboard and media keys' },
   { id: 'status', label: 'Battery and status', hint: 'See the battery level' },
-  { id: 'sms', label: 'Text messages', hint: 'Read and send SMS of a phone' }
+  { id: 'sms', label: 'Text messages', hint: 'Read and send SMS of a phone' },
+  { id: 'screen', label: 'Phone screen', hint: 'See and control a phone\'s screen' }
 ];
 
 export type Contact = {
@@ -122,6 +124,7 @@ export const api = {
   smsThreads: (peerId: string) => invoke<SmsThread[]>('sms_threads', { peerId }),
   smsThread: (peerId: string, id: string) => invoke<SmsMessage[]>('sms_thread', { peerId, id }),
   smsSend: (peerId: string, to: string, body: string) => invoke<void>('sms_send', { peerId, to, body }),
+  screenOp: (peerId: string, op: ScreenOp) => invoke<unknown>('screen_op', { peerId, op }),
   phoneOp: (peerId: string, op: PhoneOp) => invoke<unknown>('phone_op', { peerId, op }),
   lsPeers: () => invoke<LsPeer[]>('ls_peers'),
   lsSend: (fingerprint: string, paths: string[]) => invoke<void>('ls_send', { fingerprint, paths }),

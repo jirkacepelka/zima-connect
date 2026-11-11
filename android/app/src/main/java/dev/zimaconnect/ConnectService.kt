@@ -162,6 +162,10 @@ class ConnectService : Service() {
                 val reply = SmsBridge.answer(applicationContext, ev.getJSONObject("op"))
                 runCatching { Api.call("sms_reply", Api.args("call_id" to ev.getLong("req_id"), "value" to reply)) }
             }
+            "screen_request" -> {
+                val reply = ScreenBridge.answer(applicationContext, ev.getJSONObject("op"))
+                runCatching { Api.call("screen_reply", Api.args("call_id" to ev.getLong("req_id"), "value" to reply)) }
+            }
             "phone_request" -> {
                 val reply = PhoneBridge.answer(applicationContext, ev.getJSONObject("op"))
                 runCatching { Api.call("phone_reply", Api.args("call_id" to ev.getLong("req_id"), "value" to reply)) }

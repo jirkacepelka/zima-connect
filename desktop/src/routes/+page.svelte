@@ -493,15 +493,19 @@
   }
   .app {
     display: grid;
-    grid-template-columns: 248px 1fr;
+    grid-template-columns: 252px 1fr;
+    gap: 6px;
     height: 100vh;
+    padding: 14px 14px 14px 14px;
+    background: var(--ground);
   }
   .side {
     display: flex;
     flex-direction: column;
     padding: 20px 12px 12px;
-    border-right: 1px solid var(--border);
-    background: var(--ground);
+    border-radius: 24px;
+    background: var(--surface);
+    box-shadow: 0 1px 2px rgb(0 0 0 / 0.05), 0 18px 44px -22px rgb(0 0 0 / 0.38);
     min-height: 0;
   }
   .mark {
@@ -581,10 +585,11 @@
     align-items: center;
     gap: 10px;
     padding: 10px 8px;
-    border-top: 1px solid var(--border);
-    margin: 8px -12px 0;
-    padding-left: 20px;
-    padding-right: 20px;
+    margin: 8px 0 0;
+    border-radius: 14px;
+    background: var(--raised);
+    padding-left: 12px;
+    padding-right: 12px;
     text-align: left;
     color: var(--muted);
   }
@@ -608,7 +613,7 @@
   .main {
     overflow-y: auto;
     min-width: 0;
-    padding: 44px 48px 64px;
+    padding: 30px 40px 64px;
     outline: 2px solid transparent;
     outline-offset: -8px;
     transition: outline-color 0.12s;
@@ -617,7 +622,7 @@
     outline-color: var(--hue);
   }
   .content {
-    max-width: 820px;
+    max-width: 960px;
     margin: 0 auto;
   }
   .center {

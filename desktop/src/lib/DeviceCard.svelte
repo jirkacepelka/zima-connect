@@ -11,7 +11,7 @@
 </script>
 
 <button class="dev" class:over class:offline={!c.online} data-device-id={c.id} style="--h:{hue}" onclick={onopen} aria-label="{c.name}, {c.online ? 'connected' : 'offline'}. Open.">
-  <div class="art"><Mockup kind={kindOf(c.platform, c.name)} platform={c.platform} {hue} online={c.online} battery={c.battery} size={150} /></div>
+  <div class="art"><Mockup kind={kindOf(c.platform, c.name)} platform={c.platform} {hue} online={c.online} battery={c.battery} size={132} fit="height" /></div>
   <div class="info">
     <div class="name">{c.name}</div>
     <div class="owner"><span class="av">{(c.user_name ?? '·').slice(0, 1).toUpperCase()}</span>{ownerName(c)} <span class="sep">·</span> {PLATFORM[c.platform] ?? c.platform}</div>
@@ -33,14 +33,17 @@
     display: flex;
     flex-direction: column;
     text-align: left;
-    padding: 0;
     width: 100%;
     background: none;
     border-radius: 16px;
     transition: transform 0.15s;
   }
+  .dev {
+    padding: 14px 10px 16px;
+  }
   .dev:hover {
     transform: translateY(-2px);
+    background: var(--surface);
   }
   .dev.over {
     box-shadow: 0 0 0 2px var(--hue);
@@ -49,20 +52,15 @@
     display: grid;
     place-items: center;
     padding: 0;
-    height: 178px;
-    border-radius: 16px;
-    background: hsl(var(--h) 40% 95%);
-  }
-  @media (prefers-color-scheme: dark) {
-    .art {
-      background: hsl(var(--h) 22% 11%);
-    }
+    height: 150px;
   }
   .offline .art {
-    background: var(--raised);
+    opacity: 0.55;
   }
   .info {
-    padding: 12px 4px 0;
+    padding: 10px 4px 0;
+    text-align: center;
+    justify-items: center;
     display: grid;
     gap: 3px;
   }
@@ -105,7 +103,7 @@
     }
   }
   .bat {
-    margin-left: auto;
+    margin-left: 6px;
     display: inline-flex;
     align-items: center;
     gap: 3px;

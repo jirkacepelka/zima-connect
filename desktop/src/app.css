@@ -349,3 +349,50 @@ textarea.field {
   gap: 8px;
   flex: none;
 }
+
+/* Shelf and Send share one layout: a head line, a drop zone, a foot line. */
+.panel-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.panel-head .meta {
+  color: var(--muted);
+  font-size: 13px;
+  flex: 1;
+  min-width: 0;
+}
+.dropzone {
+  display: grid;
+  justify-items: center;
+  gap: 6px;
+  padding: 44px 20px;
+  text-align: center;
+  border: 1.5px dashed var(--control);
+  border-radius: 16px;
+  color: var(--muted);
+}
+.dropzone b {
+  color: var(--text);
+}
+.dropzone.over {
+  border-color: var(--hue);
+  background: var(--hue-pale);
+}
+.dropzone .btns {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.panel-foot {
+  padding: 14px 0 0;
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  flex-wrap: wrap;
+  color: var(--muted);
+  font-size: 13px;
+}

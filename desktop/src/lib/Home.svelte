@@ -2,6 +2,7 @@
   import Icon from '$lib/Icon.svelte';
   import ShelfGrid from '$lib/ShelfGrid.svelte';
   import SendPanel from '$lib/SendPanel.svelte';
+  import Dialog from '$lib/Dialog.svelte';
   import { on } from '$lib/prefs.svelte';
   import DeviceCard from '$lib/DeviceCard.svelte';
   import type { Activity, Contact, Household, LsPeer } from '$lib/api';
@@ -38,22 +39,8 @@
     onRefresh: () => void;
   } = $props();
 
-  // The main part of Home: your shelf, or send something to a device.
-  let wanted = $state<'shelf' | 'send'>('shelf');
-  const tab = $derived(!on('show_send') ? 'shelf' : !on('show_shelf') ? 'send' : wanted);
-  try {
-    if (localStorage.getItem('zc-home-tab') === 'send') wanted = 'send';
-  } catch {
-    /* no storage */
-  }
-  function setTab(t: 'shelf' | 'send') {
-    wanted = t;
-    try {
-      localStorage.setItem('zc-home-tab', t);
-    } catch {
-      /* no storage */
-    }
-  }
+  // Shelf and Send open as popups.
+  let panel = $state<'shelf' | 'send' | null>(null);
 
   // Filter the devices: everything, mine, online, or one person's.
   let filter = $state('all');
@@ -86,21 +73,22 @@
       {#if !contacts.length}No other devices yet{:else if !away.length}{contacts.length === 1 ? 'Your device is' : `All ${contacts.length} devices are`} connected{:else}{online} of {contacts.length} devices online · {away.slice(0, 2).join(', ')}{away.length > 2 ? ` and ${away.length - 2} more` : ''} offline{/if}
     </div>
   </div>
-  <div class="actions"><button class="btn btn-secondary" onclick={onAdd}><Icon name="plus" size={15} /> Add device</button></div>
+  <div class="actions">
+    {#if on('show_shelf')}<button class="btn btn-secondary" onclick={() => (panel = 'shelf')}><Icon name="shelf" size={15} /> Shelf</button>{/if}
+    {#if on('show_send')}<button class="btn btn-primary" onclick={() => (panel = 'send')}><Icon name="upload" size={15} /> Send</button>{/if}
+    <button class="btn btn-secondary" onclick={onAdd}><Icon name="plus" size={15} /> Add device</button>
+  </div>
 </div>
 
-{#if on('show_shelf') || on('show_send')}
-<section class="deck" aria-label="Shelf and send">
-  {#if on('show_shelf') && on('show_send')}<div class="seg" role="tablist" aria-label="Shelf or send">
-    <button role="tab" aria-selected={tab === 'shelf'} class:on={tab === 'shelf'} onclick={() => setTab('shelf')}><Icon name="shelf" size={15} /> Shelf</button>
-    <button role="tab" aria-selected={tab === 'send'} class:on={tab === 'send'} onclick={() => setTab('send')}><Icon name="upload" size={15} /> Send</button>
-  </div>{/if}
-  {#if tab === 'shelf'}
-    <ShelfGrid {household} {dragging} {say} {onlistenDrop} />
-  {:else}
-    <SendPanel {contacts} {nearby} {dragging} {say} refresh={onRefresh} {onlistenDrop} />
-  {/if}
-</section>
+{#if panel}
+  <Dialog wide title={panel === 'shelf' ? 'Your shelf' : 'Send'} onclose={() => (panel = null)}>
+    {#if panel === 'shelf'}
+      <ShelfGrid {household} {dragging} {say} {onlistenDrop} />
+    {:else}
+      <SendPanel {contacts} {nearby} {dragging} {say} refresh={onRefresh} {onlistenDrop} />
+    {/if}
+    <div class="actions"><button class="btn btn-secondary" onclick={() => (panel = null)}>Close</button></div>
+  </Dialog>
 {/if}
 
 <section aria-labelledby="h-dev" class="block">
@@ -159,37 +147,6 @@
   .block {
     margin-bottom: 44px;
   }
-  /* The main part of the page: set apart from everything below it. */
-  .deck {
-    margin-bottom: 52px;
-    padding: 18px 22px 22px;
-    border-radius: 22px;
-    background: var(--surface);
-    box-shadow: inset 0 0 0 1.5px var(--control), 0 6px 22px -14px rgb(0 0 0 / 0.35);
-  }
-  .seg {
-    display: inline-flex;
-    gap: 2px;
-    padding: 3px;
-    border-radius: 99px;
-    background: var(--active);
-    margin-bottom: 18px;
-  }
-  .seg button {
-    display: inline-flex;
-    align-items: center;
-    gap: 7px;
-    height: 32px;
-    padding: 0 16px;
-    border-radius: 99px;
-    font-weight: 500;
-    color: var(--muted);
-  }
-  .seg button.on {
-    background: var(--surface);
-    color: var(--text);
-    box-shadow: 0 1px 3px rgb(0 0 0 / 0.18);
-  }
   .head {
     display: flex;
     align-items: center;
@@ -236,8 +193,8 @@
   }
   .devgrid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-    gap: 20px;
+    grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+    gap: 14px;
   }
   .hint {
     margin-top: 8px;

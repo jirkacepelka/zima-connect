@@ -118,15 +118,15 @@
 </script>
 
 <section class="shelf" class:over={dragging} aria-label="Your shelf">
-  <div class="head">
+  <div class="panel-head">
     <span class="meta">Only you · reachable from all your devices</span>
-    <button class="btn btn-secondary add" disabled={!household} onclick={() => put(() => api.shelfPut())}><Icon name="plus" size={15} /> Add files…</button>
+    <button class="btn btn-primary" disabled={!household} onclick={() => put(() => api.shelfPut())}><Icon name="plus" size={15} /> Add files…</button>
   </div>
 
   {#if !household}
     <div class="empty-line" style="border-top:0;padding-left:0">The shelf lives on your Zima Connect server. Join the server first (Settings, Add device).</div>
   {:else if items.length === 0}
-    <div class="empty" class:over={dragging}>
+    <div class="dropzone" class:over={dragging}>
       <Icon name="upload" size={22} />
       <b>{busy ? 'Putting files on the shelf…' : 'Drop files here'}</b>
       <span class="sub">Keep a file here and pick it up on your phone or another computer. Drag it back out to save it anywhere.</span>
@@ -150,7 +150,7 @@
         <div class="tile loading"><div class="thumb-ph"></div><div class="cap"><div class="n">Uploading…</div></div></div>
       {/if}
     </div>
-    <div class="foot">
+    <div class="panel-foot">
       {#if items.length > PER_ROW}<button class="link" onclick={() => (all = !all)}>{all ? 'Show less' : `Show all ${items.length}`}</button>{/if}
       <span class="sub">Drop files here to add them. Drag a file out to save it anywhere.</span>
     </div>
@@ -177,36 +177,6 @@
   }
   .shelf.over {
     box-shadow: 0 0 0 2px var(--hue);
-    background: var(--hue-pale);
-  }
-  .head {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    margin-bottom: 16px;
-  }
-  .head .meta {
-    color: var(--muted);
-    font-size: 13px;
-  }
-  .head .add {
-    margin-left: auto;
-  }
-  .empty {
-    padding: 40px 20px;
-    display: grid;
-    justify-items: center;
-    gap: 6px;
-    text-align: center;
-    border: 1.5px dashed var(--control);
-    border-radius: 14px;
-    color: var(--muted);
-  }
-  .empty b {
-    color: var(--text);
-  }
-  .empty.over {
-    border-color: var(--hue);
     background: var(--hue-pale);
   }
   .grid {
@@ -287,12 +257,5 @@
     50% {
       opacity: 0.5;
     }
-  }
-  .foot {
-    padding: 12px 0 0;
-    display: flex;
-    gap: 14px;
-    align-items: center;
-    flex-wrap: wrap;
   }
 </style>

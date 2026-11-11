@@ -40,6 +40,38 @@ pub enum PhoneOp {
     State,
 }
 
+/// What another device asks of a phone's screen. Positions are fractions of the screen (0 to 1).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "op", rename_all = "snake_case")]
+pub enum ScreenOp {
+    /// What is shared right now: { sharing, control, width, height }.
+    Status,
+    /// The latest picture as { jpg (base64), width, height }; `max_width` shrinks it.
+    Frame {
+        max_width: Option<u32>,
+    },
+    Tap {
+        x: f32,
+        y: f32,
+    },
+    /// Press and hold.
+    Hold {
+        x: f32,
+        y: f32,
+    },
+    Swipe {
+        x1: f32,
+        y1: f32,
+        x2: f32,
+        y2: f32,
+        ms: u32,
+    },
+    /// "back" | "home" | "recents" | "notifications"
+    Key {
+        name: String,
+    },
+}
+
 /// Things one device can do on another by remote control.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "k", rename_all = "snake_case")]
@@ -105,6 +137,10 @@ pub enum Request {
         state: String,
         number: String,
         name: Option<String>,
+    },
+    /// Look at and control a phone's screen; the phone's app answers.
+    Screen {
+        op: ScreenOp,
     },
     /// Open a link on the other device.
     OpenUrl {

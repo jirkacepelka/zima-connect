@@ -37,7 +37,7 @@ pub use household::{AdminOp, Cap, Device, Role, Rule, SignedSnapshot, Snapshot, 
 use hub::{HubCore, Outcome};
 use mailbox::{Item, Kind, Mailbox, Payload};
 use proto::{read_msg, write_msg, Request, Response};
-pub use proto::{PhoneOp, RemoteInput, SmsOp};
+pub use proto::{PhoneOp, RemoteInput, ScreenOp, SmsOp};
 pub use shelf::{Audience, ShelfItem};
 pub use store::Peer;
 use store::Store;
@@ -140,6 +140,13 @@ pub enum Event {
         from: String,
         from_name: String,
         op: PhoneOp,
+    },
+    /// Another device wants to see or control this phone's screen: answer with `Node::screen_reply`.
+    ScreenRequest {
+        req_id: u64,
+        from: String,
+        from_name: String,
+        op: ScreenOp,
     },
     /// One of your phones changed its call state: "ringing" | "dialing" | "talking" | "idle".
     PhoneState {
@@ -1087,6 +1094,24 @@ impl Node {
         }
     }
 
+    /// See or control a phone's screen from here.
+    pub async fn screen(&self, peer_id: &str, op: ScreenOp) -> Result<serde_json::Value> {
+        match self
+            .request_peer(peer_id, Request::Screen { op }, Some(Cap::Screen), None)
+            .await?
+        {
+            Response::Json { value } => Ok(value),
+            Response::Ok => Ok(serde_json::Value::Null),
+            Response::Err { message } => bail!("{message}"),
+            _ => bail!("unexpected response"),
+        }
+    }
+
+    /// The phone's app answers a request that arrived as `Event::ScreenRequest`.
+    pub fn screen_reply(&self, req_id: u64, value: serde_json::Value) -> Result<()> {
+        self.sms_reply(req_id, value)
+    }
+
     /// The phone's app answers a request that arrived as `Event::PhoneRequest`.
     pub fn phone_reply(&self, req_id: u64, value: serde_json::Value) -> Result<()> {
         self.sms_reply(req_id, value)
@@ -1937,6 +1962,7 @@ impl Node {
             Request::Phone { .. } | Request::PhonePush { .. } => Some(Cap::Calls),
             Request::Battery { .. } => Some(Cap::Status),
             Request::Remote { .. } => Some(Cap::Remote),
+            Request::Screen { .. } => Some(Cap::Screen),
             _ => None, // Ping
         };
         let who = match self.authorize(remote, cap).await {
@@ -2009,6 +2035,37 @@ impl Node {
                     name: name.clone(),
                 });
                 Response::Ok
+            }
+            Request::Screen { op } => {
+                let req_id = self
+                    .inner
+                    .next_call
+                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                let (tx, rx) = tokio::sync::oneshot::channel();
+                self.inner.rpc.lock().unwrap().insert(req_id, tx);
+                let _ = ev.send(Event::ScreenRequest {
+                    req_id,
+                    from: who.id,
+                    from_name: who.name,
+                    op: op.clone(),
+                });
+                match tokio::time::timeout(Duration::from_secs(10), rx).await {
+                    Ok(Ok(value)) => {
+                        if let Some(m) = value.get("error").and_then(|e| e.as_str()) {
+                            Response::Err {
+                                message: m.to_string(),
+                            }
+                        } else {
+                            Response::Json { value }
+                        }
+                    }
+                    _ => {
+                        self.inner.rpc.lock().unwrap().remove(&req_id);
+                        Response::Err {
+                            message: "the phone did not answer (is screen sharing on?)".into(),
+                        }
+                    }
+                }
             }
             Request::Phone { op } => {
                 let req_id = self
