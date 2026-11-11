@@ -72,5 +72,19 @@ async fn own_relay_and_rename() {
     let d = hub.hub_dashboard().unwrap();
     assert!(d.devices.iter().any(|x| x.name == "Kitchen laptop"));
     assert!(pc.rename_device("  ").await.is_err());
+
+    // Colours: everyone has one, it is the same for the whole household and can be changed.
+    let me_hue = pc.household_info().unwrap().me.hue;
+    assert!(me_hue.is_some());
+    pc.set_my_color(222).await.unwrap();
+    assert_eq!(pc.household_info().unwrap().me.hue, Some(222));
+    assert_eq!(hub.hub_dashboard().unwrap().users[0].hue, Some(222));
+    let uid = hub.hub_dashboard().unwrap().users[0].id.clone();
+    hub.hub_admin(AdminOp::SetUserColor { id: uid, hue: 8 })
+        .await
+        .unwrap();
+    pc.sync().await.unwrap();
+    assert_eq!(pc.household_info().unwrap().me.hue, Some(8));
+    assert!(pc.set_my_color(400).await.is_err());
     srv.shutdown().await.unwrap();
 }

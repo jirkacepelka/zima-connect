@@ -20,6 +20,7 @@ data class Contact(
     val platform: String,
     val userId: String?,
     val userName: String?,
+    val userHue: Int?,
     val mine: Boolean,
     val direct: Boolean,
     val caps: Set<String>,
@@ -29,7 +30,7 @@ data class Contact(
     val battery: Pair<Int, Boolean>? = null,
 )
 
-data class User(val id: String, val name: String, val owner: Boolean)
+data class User(val id: String, val name: String, val owner: Boolean, val hue: Int? = null)
 data class Device(val id: String, val userId: String, val name: String, val platform: String)
 data class Rule(val from: String, val to: String, val cap: String, val allow: Boolean)
 
@@ -64,6 +65,7 @@ val CAPS = listOf(
     "calls" to "Voice calls",
     "remote" to "Remote control",
     "status" to "Battery and status",
+    "sms" to "Text messages",
 )
 
 data class ShelfItem(
@@ -96,7 +98,8 @@ fun parseShelf(v: Any?, users: List<User>): List<ShelfItem> {
 private fun JSONArray.objects(): List<JSONObject> = (0 until length()).map { getJSONObject(it) }
 private fun JSONObject.strOrNull(k: String): String? = if (isNull(k)) null else getString(k)
 
-private fun parseUser(o: JSONObject) = User(o.getString("id"), o.getString("name"), o.getString("role") == "owner")
+private fun parseUser(o: JSONObject) =
+    User(o.getString("id"), o.getString("name"), o.getString("role") == "owner", if (o.isNull("hue") || !o.has("hue")) null else o.getInt("hue"))
 
 fun parseHousehold(v: Any?): Household? {
     val o = v as? JSONObject ?: return null
@@ -128,6 +131,7 @@ fun parseContacts(v: Any?, previous: List<Contact>): List<Contact> {
             platform = o.getString("platform"),
             userId = o.strOrNull("user_id"),
             userName = o.strOrNull("user_name"),
+            userHue = if (o.isNull("user_hue") || !o.has("user_hue")) null else o.getInt("user_hue"),
             mine = o.getBoolean("mine"),
             direct = o.getBoolean("direct"),
             caps = caps,
@@ -234,6 +238,20 @@ object AppModel {
         val path = Api.call("shelf_get", Api.args("id" to item.id)) as String
         log("file", "Took ${item.name} from the shelf", "")
         return path
+    }
+
+    /** Download a shelf item into the cache (once) so it can be previewed. */
+    suspend fun shelfCache(ctx: Context, item: ShelfItem): File {
+        val dir = File(ctx.cacheDir, "shelf/${item.id}")
+        dir.listFiles()?.firstOrNull { it.length() == item.size }?.let { return it }
+        dir.deleteRecursively()
+        dir.mkdirs()
+        return File(Api.call("shelf_cache", Api.args("id" to item.id, "path" to dir.absolutePath)) as String)
+    }
+
+    suspend fun setMyColor(hue: Int) {
+        Api.call("set_color", Api.args("hue" to hue))
+        refresh()
     }
 
     suspend fun shelfDelete(item: ShelfItem) {

@@ -26,10 +26,12 @@ pub enum Cap {
     Remote,
     /// Status: battery level and the like.
     Status,
+    /// Read and send text messages (SMS) of a phone.
+    Sms,
 }
 
 impl Cap {
-    pub const ALL: [Cap; 7] = [
+    pub const ALL: [Cap; 8] = [
         Cap::Files,
         Cap::Clipboard,
         Cap::Notifications,
@@ -37,6 +39,7 @@ impl Cap {
         Cap::Calls,
         Cap::Remote,
         Cap::Status,
+        Cap::Sms,
     ];
 
     /// Between two *different* people only these are allowed unless a rule says otherwise.
@@ -54,11 +57,26 @@ pub enum Role {
     Member,
 }
 
+/// Colours people can have (hue in degrees). The same everywhere: server, computers, phones.
+pub const PALETTE: [u16; 12] = [8, 28, 46, 98, 150, 176, 200, 222, 252, 282, 312, 340];
+
+/// A palette colour nobody uses yet (or the least used one).
+pub fn pick_hue(users: &[User]) -> u16 {
+    PALETTE
+        .iter()
+        .copied()
+        .min_by_key(|h| users.iter().filter(|u| u.hue == Some(*h)).count())
+        .unwrap_or(222)
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct User {
     pub id: String,
     pub name: String,
     pub role: Role,
+    /// The person's colour (hue, 0-359); older servers did not have one.
+    #[serde(default)]
+    pub hue: Option<u16>,
 }
 
 /// The server's own relay, announced to every device in the signed snapshot.
@@ -202,6 +220,10 @@ pub enum AdminOp {
     RenameDevice {
         id: String,
         name: String,
+    },
+    SetUserColor {
+        id: String,
+        hue: u16,
     },
     /// Announce (or withdraw) the server's own relay.
     SetRelay {

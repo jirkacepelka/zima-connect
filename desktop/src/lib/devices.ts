@@ -17,6 +17,8 @@ export function hueOf(s: string | null | undefined): number {
   return (h * 137) % 360;
 }
 
+export const hueFor = (c: Contact) => c.user_hue ?? hueOf(c.user_name ?? c.id);
+
 export const PLATFORM: Record<string, string> = {
   android: 'Android',
   windows: 'Windows',

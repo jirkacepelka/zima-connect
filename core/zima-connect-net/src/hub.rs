@@ -9,7 +9,9 @@ use anyhow::{anyhow, bail, Result};
 use iroh::SecretKey;
 use serde::{Deserialize, Serialize};
 
-use crate::household::{AdminOp, Device, RelaySetting, Role, Rule, SignedSnapshot, Snapshot, User};
+use crate::household::{
+    pick_hue, AdminOp, Device, RelaySetting, Role, Rule, SignedSnapshot, Snapshot, User,
+};
 
 const INVITE_TTL_SECS: u64 = 24 * 60 * 60;
 
@@ -101,8 +103,27 @@ impl HubCore {
             key,
             data: Mutex::new(data),
         };
+        hub.give_everyone_a_colour()?;
         hub.prune_and_bootstrap()?;
         Ok(hub)
+    }
+
+    /// People created before colours existed get one.
+    fn give_everyone_a_colour(&self) -> Result<()> {
+        let mut d = self.data.lock().unwrap();
+        let mut changed = false;
+        for i in 0..d.users.len() {
+            if d.users[i].hue.is_none() {
+                let h = pick_hue(&d.users);
+                d.users[i].hue = Some(h);
+                changed = true;
+            }
+        }
+        if changed {
+            d.version += 1;
+            self.save(&d)?;
+        }
+        Ok(())
     }
 
     fn save(&self, d: &HubData) -> Result<()> {
@@ -259,10 +280,12 @@ impl HubCore {
                     .filter(|n| !n.trim().is_empty())
                     .unwrap_or_else(|| name.to_string());
                 let id = rand_hex(4);
+                let hue = Some(pick_hue(&d.users));
                 d.users.push(User {
                     id: id.clone(),
                     name: uname.trim().to_string(),
                     role,
+                    hue,
                 });
                 id
             }
@@ -304,6 +327,28 @@ impl HubCore {
     /// e.g. to remove a lost owner phone.
     pub fn apply_as_admin(&self, op: &AdminOp) -> Result<Outcome> {
         self.apply_with(op, true)
+    }
+
+    /// The person using `device_id` picks their own colour.
+    pub fn set_my_color(&self, device_id: &str, hue: u16) -> Result<()> {
+        if hue >= 360 {
+            bail!("colour out of range");
+        }
+        let mut d = self.data.lock().unwrap();
+        let Some(user_id) = d
+            .devices
+            .iter()
+            .find(|x| x.id == device_id)
+            .map(|x| x.user_id.clone())
+        else {
+            bail!("not part of this household")
+        };
+        if let Some(u) = d.users.iter_mut().find(|u| u.id == user_id) {
+            u.hue = Some(hue);
+            d.version += 1;
+            self.save(&d)?;
+        }
+        Ok(())
     }
 
     /// A device renames itself.
@@ -437,10 +482,12 @@ impl HubCore {
                     Role::Member
                 };
                 let id = rand_hex(4);
+                let hue = Some(pick_hue(&d.users));
                 d.users.push(User {
                     id: id.clone(),
                     name: n.to_string(),
                     role,
+                    hue,
                 });
                 d.version += 1;
                 self.save(&d)?;
@@ -467,6 +514,16 @@ impl HubCore {
                     bail!("unknown person")
                 };
                 u.name = n.to_string();
+                Outcome::Changed
+            }
+            AdminOp::SetUserColor { id, hue } => {
+                if *hue >= 360 {
+                    bail!("colour out of range");
+                }
+                let Some(u) = d.users.iter_mut().find(|u| &u.id == id) else {
+                    bail!("unknown person")
+                };
+                u.hue = Some(*hue);
                 Outcome::Changed
             }
             AdminOp::RenameDevice { id, name } => {

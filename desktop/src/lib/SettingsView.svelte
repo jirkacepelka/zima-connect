@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import Icon from '$lib/Icon.svelte';
-  import { api, errText, type Household, type Settings } from '$lib/api';
+  import { PALETTE, api, errText, type Household, type Settings } from '$lib/api';
 
   let {
     name,
@@ -37,6 +37,15 @@
     const next = { ...prefs, ...patch };
     try {
       prefs = await api.setSettings(next);
+    } catch (e) {
+      say(errText(e), true);
+    }
+  }
+
+  async function pickColour(h: number) {
+    try {
+      await api.setMyColor(h);
+      say('Colour saved');
     } catch (e) {
       say(errText(e), true);
     }
@@ -87,6 +96,20 @@
     {/if}
   </div>
 </section>
+
+{#if household}
+  <section class="card" aria-labelledby="h-col">
+    <div class="card-head"><h2 id="h-col">Your colour</h2></div>
+    <div class="row">
+      <div class="grow"><div class="name">Shown for you everywhere</div><div class="sub">On the server, on computers and phones.</div></div>
+      <div class="swatches" role="radiogroup" aria-label="Your colour">
+        {#each PALETTE as h}
+          <button class="swatch" role="radio" aria-checked={household.info.me.hue === h} aria-label="Colour {h}" style="--h:{h}" onclick={() => pickColour(h)}></button>
+        {/each}
+      </div>
+    </div>
+  </section>
+{/if}
 
 <section class="card" aria-labelledby="h-bg">
   <div class="card-head"><h2 id="h-bg">Background</h2></div>
@@ -142,5 +165,22 @@
   .edit {
     display: flex;
     gap: 8px;
+  }
+  .swatches {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    max-width: 250px;
+    justify-content: flex-end;
+  }
+  .swatch {
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    background: hsl(var(--h) 70% 62%);
+    box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.12);
+  }
+  .swatch[aria-checked='true'] {
+    box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px hsl(var(--h) 60% 45%);
   }
 </style>

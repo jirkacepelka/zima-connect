@@ -3,8 +3,9 @@
   import Icon from '$lib/Icon.svelte';
   import Mockup from '$lib/Mockup.svelte';
   import RemotePad from '$lib/RemotePad.svelte';
+  import { call, startCall } from '$lib/call.svelte';
   import { api, errText, type Cap, type Contact } from '$lib/api';
-  import { PLATFORM, hueOf, kindOf, ownerName, size } from '$lib/devices';
+  import { PLATFORM, hueFor, kindOf, ownerName, size } from '$lib/devices';
 
   let {
     c,
@@ -15,7 +16,8 @@
     onUnpair,
     onRing,
     onStopRing,
-    onlistenDrop
+    onlistenDrop,
+    onMessages
   }: {
     c: Contact;
     dragging: boolean;
@@ -26,6 +28,7 @@
     onRing: () => void;
     onStopRing: () => void;
     onlistenDrop: (h: ((paths: string[]) => void) | null) => void;
+    onMessages: () => void;
   } = $props();
 
   // What is about to be sent: files, text and links, all in one place.
@@ -36,7 +39,7 @@
   let sending = $state(false);
   let remoteOpen = $state(false);
 
-  const hue = $derived(hueOf(c.user_name ?? c.id));
+  const hue = $derived(hueFor(c));
   const live: Cap[] = ['ring', 'remote', 'status', 'calls'];
   const can = (cap: Cap) => c.caps.includes(cap) && (c.online || (!c.direct && !live.includes(cap)));
   const why = (cap: Cap) =>
@@ -202,6 +205,18 @@
 
 <section class="tools" aria-labelledby="h-tools">
   <h2 id="h-tools" class="sect">Tools</h2>
+  {#if c.platform === 'android'}
+    <div class="row slim">
+      <Icon name="clipboard" size={18} />
+      <div class="grow"><div class="name">Text messages</div><div class="sub">{can('sms') ? 'Read and answer this phone’s SMS' : why('sms')}</div></div>
+      <button class="btn btn-secondary" disabled={!can('sms')} onclick={onMessages}>Open</button>
+    </div>
+  {/if}
+  <div class="row slim">
+    <Icon name="call" size={18} />
+    <div class="grow"><div class="name">Voice call</div><div class="sub">{can('calls') ? 'Talk to the person at this device' : why('calls')}</div></div>
+    <button class="btn btn-secondary" disabled={!can('calls') || call.state !== 'idle'} onclick={() => startCall(c.id, c.name).catch((e) => say(errText(e), true))}>Call</button>
+  </div>
   <div class="row slim">
     <Icon name="bell" size={18} />
     <div class="grow"><div class="name">Find device</div><div class="sub">{can('ring') ? (ringing ? 'Ringing. Stops by itself after 30 s.' : 'Make it ring, even when silent') : why('ring')}</div></div>

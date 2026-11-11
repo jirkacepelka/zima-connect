@@ -6,12 +6,15 @@
   import AddDevice from '$lib/AddDevice.svelte';
   import DeviceView from '$lib/DeviceView.svelte';
   import Home from '$lib/Home.svelte';
+  import CallOverlay from '$lib/CallOverlay.svelte';
+  import MessagesView from '$lib/MessagesView.svelte';
+  import { wireCalls } from '$lib/call.svelte';
   import SettingsView from '$lib/SettingsView.svelte';
   import HouseholdView from '$lib/HouseholdView.svelte';
   import UpdateDialog from '$lib/UpdateDialog.svelte';
   import { api, errText, type Activity, type Contact, type Household, type UpdateInfo } from '$lib/api';
 
-  type View = 'home' | 'device' | 'activity' | 'people' | 'settings';
+  type View = 'home' | 'device' | 'messages' | 'activity' | 'people' | 'settings';
 
   let identity = $state<{ id: string; name: string; platform: string } | null>(null);
   let contacts = $state<Contact[]>([]);
@@ -97,6 +100,7 @@
 
   onMount(() => {
     refresh();
+    wireCalls().catch(() => {});
     const firstCheck = setTimeout(checkUpdate, 8000);
     const updatePoll = setInterval(checkUpdate, 6 * 3600 * 1000);
     const poll = setInterval(refresh, 5000);
@@ -274,7 +278,7 @@
     return new Date(ts).toLocaleDateString();
   }
   const activityIcon = (k: string) =>
-    ({ clipboard: 'clipboard', file: 'file', ring: 'bell', notification: 'bell', pair: 'link', link: 'globe', shelf: 'shelf' } as Record<string, string>)[k] ?? 'activity';
+    ({ clipboard: 'clipboard', file: 'file', ring: 'bell', notification: 'bell', pair: 'link', link: 'globe', shelf: 'shelf', sms: 'clipboard', call: 'call' } as Record<string, string>)[k] ?? 'activity';
 
   const go = (v: View, id?: string) => {
     view = v;
@@ -347,9 +351,11 @@
         </section>
       {:else if view === 'people' && household}
         <HouseholdView {household} myDeviceId={identity?.id ?? ''} {say} onchange={refresh} oninvite={(code, label) => (invite = { code, label })} />
+      {:else if view === 'messages' && selected}
+        <MessagesView c={selected} {say} onBack={() => go('device')} />
       {:else if selected}
         {#key selected.id}
-          <DeviceView c={selected} {dragging} ringing={isRinging(selected.id)} {say} {refresh} onUnpair={unpair} onRing={ring} onStopRing={stopRinging} onlistenDrop={(h) => (dropHandler = h)} />
+          <DeviceView c={selected} {dragging} ringing={isRinging(selected.id)} {say} {refresh} onUnpair={unpair} onRing={ring} onStopRing={stopRinging} onlistenDrop={(h) => (dropHandler = h)} onMessages={() => go('messages')} />
         {/key}
       {:else}
         <div class="center">
@@ -370,6 +376,8 @@
     </div>
   </main>
 </div>
+
+<CallOverlay />
 
 {#if updateOpen && update}
   <UpdateDialog info={update} {say} onclose={() => (updateOpen = false)} />

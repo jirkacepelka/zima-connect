@@ -97,6 +97,9 @@ svg { flex: none; display: block; }
 .field:focus { outline: none; border-color: var(--hue); box-shadow: 0 0 0 3px var(--hue-pale); }
 .label { display: block; font-weight: 500; margin-bottom: 8px; }
 
+.swatches { display: flex; flex-wrap: wrap; gap: 10px; padding: 16px 20px; }
+.swatch { width: 30px; height: 30px; border-radius: 50%; background: hsl(var(--h) 70% 62%); box-shadow: inset 0 0 0 1px rgba(0,0,0,.12); }
+.swatch[aria-checked="true"] { box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px hsl(var(--h) 60% 45%); }
 .banner { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; padding: 12px 16px; margin-bottom: 20px; border: 1px solid var(--border); border-radius: var(--radius-card); background: var(--surface); }
 .banner .grow { flex: 1; min-width: 200px; }
 .notes { max-height: 280px; overflow: auto; margin-bottom: 4px; padding: 12px 14px; border: 1px solid var(--border); border-radius: 8px; background: var(--raised); }
@@ -267,14 +270,20 @@ const CAPS = [
   { id: 'clipboard', short: 'C', label: 'Clipboard', hint: 'Send copied text on purpose' },
   { id: 'ring', short: 'R', label: 'Find my device', hint: 'Make the device ring' },
   { id: 'notifications', short: 'N', label: 'Notification mirroring', hint: 'Show notifications automatically' },
-  { id: 'calls', short: 'V', label: 'Calls', hint: 'Not available yet' },
+  { id: 'calls', short: 'V', label: 'Voice calls', hint: 'Call the device' },
+  { id: 'remote', short: 'M', label: 'Remote control', hint: 'Touchpad, keyboard and media keys' },
+  { id: 'status', short: 'S', label: 'Battery and status', hint: 'See battery level' },
+  { id: 'sms', short: 'T', label: 'Text messages', hint: 'Read and send SMS of a phone' },
 ];
 const defaultAllowed = (from, to, cap) => from === to || cap === 'files' || cap === 'clipboard' || cap === 'ring';
 
 /* Each person keeps a pale tint of their own hue (identity, not data); neighbours sit far apart on the wheel. */
 const HUES = [212, 28, 152, 330, 262, 92, 188, 4];
+const PALETTE = [8, 28, 46, 98, 150, 176, 200, 222, 252, 282, 312, 340];
 function tint(user) {
-  const i = S.users.findIndex(u => u.id === user.id);
+  const u = S.users.find(x => x.id === user.id) || user;
+  if (u.hue != null) return `--h:${u.hue}`;
+  const i = S.users.findIndex(x => x.id === user.id);
   return `--h:${HUES[(i < 0 ? 0 : i) % HUES.length]}`;
 }
 const initials = n => String(n).trim().split(/\s+/).map(w => w[0]).join('').slice(0, 2).toUpperCase() || '?';
@@ -462,8 +471,8 @@ function pageOverview() {
 function permTable(u, o) {
   return `<table class="perm-table"><thead><tr><th scope="col">What</th><th scope="col" class="c">${esc(u.name)} → ${esc(o.name)}</th><th scope="col" class="c">${esc(o.name)} → ${esc(u.name)}</th></tr></thead><tbody>
     ${CAPS.map(c => `<tr><td><div class="name">${esc(c.label)}</div><div class="sub">${esc(c.hint)}</div></td>
-      <td class="c">${toggle(`rule:${u.id}|${o.id}|${c.id}`, allowed(u.id, o.id, c.id), `${c.label}, ${u.name} to ${o.name}`, c.id === 'calls')}</td>
-      <td class="c">${toggle(`rule:${o.id}|${u.id}|${c.id}`, allowed(o.id, u.id, c.id), `${c.label}, ${o.name} to ${u.name}`, c.id === 'calls')}</td></tr>`).join('')}
+      <td class="c">${toggle(`rule:${u.id}|${o.id}|${c.id}`, allowed(u.id, o.id, c.id), `${c.label}, ${u.name} to ${o.name}`)}</td>
+      <td class="c">${toggle(`rule:${o.id}|${u.id}|${c.id}`, allowed(o.id, u.id, c.id), `${c.label}, ${o.name} to ${u.name}`)}</td></tr>`).join('')}
   </tbody></table>`;
 }
 const isCustom = (u, o) => S.rules.some(r => (r.from_user === u.id && r.to_user === o.id) || (r.from_user === o.id && r.to_user === u.id));
@@ -486,6 +495,9 @@ function pagePerson(u) {
       : `<div class="empty-line">${esc(u.name)} has no devices yet. <button class="link" data-adddev="${u.id}">Add a device</button></div>`}
   </section>`;
 
+  const colour = `<div class="section"><div><h2>Colour</h2><div class="desc">Shown for ${esc(u.name)} on every screen: this dashboard, computers and phones.</div></div>
+    <div class="panel card"><div class="swatches" role="radiogroup" aria-label="Colour of ${esc(u.name)}">${PALETTE.map(h => `<button class="swatch" role="radio" aria-checked="${u.hue === h}" aria-label="Colour ${h}" data-colour="${u.id}|${h}" style="--h:${h}"></button>`).join('')}</div></div></div>`;
+
   const role = `<div class="section"><div><h2>Managing the household</h2><div class="desc">Lets ${esc(u.name)} add people and devices and change permissions from the Zima Connect app, as you can here.</div></div>
     <div class="panel card"><div class="kv"><div class="k"><div class="name">Manages household</div><div class="sub">${u.role === 'owner' ? 'On' : 'Off'}</div></div>${toggle(`role:${u.id}`, u.role === 'owner', `Manages household`)}</div></div></div>`;
 
@@ -500,7 +512,7 @@ function pagePerson(u) {
   const remove = `<div class="section"><div><h2>Remove ${esc(u.name)}</h2><div class="desc">Their devices are disconnected from everyone and their permissions are deleted. You can add them again later.</div></div>
     <div class="panel"><button class="btn btn-danger" data-rmuser="${u.id}" data-name="${esc(u.name)}">Remove ${esc(u.name)}</button></div></div>`;
 
-  return head + devices + `<div style="margin-top:32px">${role}${pairs}${remove}</div>`;
+  return head + devices + `<div style="margin-top:32px">${colour}${role}${pairs}${remove}</div>`;
 }
 
 /* ── server ──────────────────────────────────── */
@@ -564,6 +576,7 @@ function bind() {
   $$('[data-update-info]').forEach(el => el.onclick = updateSheet);
   $$('[data-update-go]').forEach(el => el.onclick = () => confirmSheet('Update the server?', 'It downloads the new version and restarts. Devices reconnect by themselves within a minute.', 'Update and restart', installUpdate));
   $$('[data-checkupdate]').forEach(el => el.onclick = checkUpdate);
+  $$('[data-colour]').forEach(el => el.onclick = () => { const [id, h] = el.dataset.colour.split('|'); run({ op: 'set_user_color', id, hue: Number(h) }, 'Colour saved'); });
   $$('[data-rmshelf]').forEach(el => el.onclick = () => confirmSheet(`Remove “${el.dataset.name}”?`, 'It disappears from the shelf for everyone.', 'Remove file', async () => { try { await api('/api/shelf/delete', { id: el.dataset.rmshelf }); toast('Removed'); } catch (e) { toast(e.message, true); } refresh(true); }));
   $$('[data-rendev]').forEach(el => el.onclick = () => renameDeviceSheet(el.dataset.rendev, el.dataset.name));
   $$('[data-rmdev]').forEach(el => el.onclick = () => confirmSheet(`Remove “${el.dataset.name}”?`, 'It stops working with the other devices. You can add it again later with a new code.', 'Remove device', () => run({ op: 'remove_device', id: el.dataset.rmdev }, `${el.dataset.name} removed`)));

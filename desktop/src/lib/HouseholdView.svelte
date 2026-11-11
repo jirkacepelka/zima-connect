@@ -103,7 +103,7 @@
       {@const devs = snap.devices.filter((d) => d.user_id === u.id)}
       <li class="person">
         <div class="p-top">
-          <span class="avatar">{u.name.slice(0, 1).toUpperCase()}</span>
+          <span class="avatar" style="--h:{u.hue ?? 222}">{u.name.slice(0, 1).toUpperCase()}</span>
           <span class="p-name">{u.id === me.id ? `${u.name} (you)` : u.name}</span>
           <span class="pill">{u.role === 'owner' ? 'Owner' : 'Member'}</span>
           <span class="spacer"></span>
@@ -254,8 +254,8 @@
     width: 30px;
     height: 30px;
     border-radius: 50%;
-    background: var(--accent-soft);
-    color: var(--accent);
+    background: hsl(var(--h) 60% 90%);
+    color: hsl(var(--h) 55% 28%);
     display: grid;
     place-items: center;
     font-weight: 650;

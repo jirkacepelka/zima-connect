@@ -8,7 +8,7 @@ use tauri_plugin_clipboard_manager::ClipboardExt;
 use tauri_plugin_dialog::DialogExt;
 
 use tauri_plugin_autostart::ManagerExt;
-use zima_connect_net::{AdminOp, Contact, Delivery, HouseholdInfo, RemoteInput, ShelfItem, Snapshot};
+use zima_connect_net::{AdminOp, SmsOp, Contact, Delivery, HouseholdInfo, RemoteInput, ShelfItem, Snapshot};
 
 use crate::settings::{self, Settings};
 
@@ -87,6 +87,78 @@ pub async fn check_update(app: AppHandle) -> Result<Option<crate::updater::Updat
 #[tauri::command]
 pub async fn install_update(info: crate::updater::UpdateInfo, app: AppHandle) -> Result<(), String> {
     crate::updater::install(app, info).await
+}
+
+/// Call a device. Returns the call id; progress arrives as `call-event` events.
+#[tauri::command]
+pub async fn call_start(peer_id: String, state: State<'_, SharedState>) -> Result<u64, String> {
+    let name = peer_name(&state, &peer_id);
+    match state.node.call_start(&peer_id).await {
+        Ok(id) => {
+            state.log("call", "Calling", name, true, None);
+            Ok(id)
+        }
+        Err(e) => Err(format!("{e:#}")),
+    }
+}
+
+#[tauri::command]
+pub fn call_accept(call_id: u64, state: State<'_, SharedState>) -> Result<(), String> {
+    state.node.call_accept(call_id).map_err(|e| format!("{e:#}"))
+}
+
+#[tauri::command]
+pub fn call_decline(call_id: u64, state: State<'_, SharedState>) -> Result<(), String> {
+    state.node.call_decline(call_id).map_err(|e| format!("{e:#}"))
+}
+
+#[tauri::command]
+pub fn call_hangup(call_id: u64, state: State<'_, SharedState>) {
+    state.node.call_hangup(call_id);
+}
+
+/// One 20 ms audio frame (PCM16 mono 16 kHz, base64) from the microphone.
+#[tauri::command]
+pub fn call_send(call_id: u64, data: String, state: State<'_, SharedState>) -> Result<(), String> {
+    use base64::Engine;
+    let bytes = base64::engine::general_purpose::STANDARD.decode(data).map_err(|e| e.to_string())?;
+    state.node.call_send(call_id, bytes).map_err(|e| format!("{e:#}"))
+}
+
+/// The call this computer is in right now, if any: (id, peer name, outgoing).
+#[tauri::command]
+pub fn call_active(state: State<'_, SharedState>) -> Option<(u64, String, bool)> {
+    state.node.active_call().map(|(id, _, name, out)| (id, name, out))
+}
+
+/// The conversations of a phone's text messages.
+#[tauri::command]
+pub async fn sms_threads(peer_id: String, state: State<'_, SharedState>) -> Result<serde_json::Value, String> {
+    state.node.sms(&peer_id, SmsOp::Threads).await.map_err(|e| format!("{e:#}"))
+}
+
+#[tauri::command]
+pub async fn sms_thread(peer_id: String, id: String, state: State<'_, SharedState>) -> Result<serde_json::Value, String> {
+    state.node.sms(&peer_id, SmsOp::Thread { id }).await.map_err(|e| format!("{e:#}"))
+}
+
+/// Send a text message through the phone.
+#[tauri::command]
+pub async fn sms_send(peer_id: String, to: String, body: String, state: State<'_, SharedState>) -> Result<(), String> {
+    let name = peer_name(&state, &peer_id);
+    match state.node.sms(&peer_id, SmsOp::Send { to: to.clone(), body }).await {
+        Ok(_) => {
+            state.log("sms", "Text message sent", format!("to {to} through {name}"), true, None);
+            Ok(())
+        }
+        Err(e) => Err(format!("{e:#}")),
+    }
+}
+
+/// Choose the colour of the person using this computer (the same on every screen).
+#[tauri::command]
+pub async fn set_my_color(hue: u16, state: State<'_, SharedState>) -> Result<(), String> {
+    state.node.set_my_color(hue).await.map_err(|e| format!("{e:#}"))
 }
 
 /// Give this computer a new name (shown on all other devices).

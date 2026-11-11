@@ -18,7 +18,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use tokio::runtime::Runtime;
 use tokio::sync::broadcast;
-use zima_connect_net::{AdminOp, Event, Node, NodeConfig, RemoteInput};
+use zima_connect_net::{AdminOp, Event, Node, NodeConfig, RemoteInput, SmsOp};
 
 static RT: OnceLock<Runtime> = OnceLock::new();
 static NODE: OnceLock<Node> = OnceLock::new();
@@ -69,6 +69,14 @@ struct Args {
     input: Option<RemoteInput>,
     #[serde(default)]
     percent: u8,
+    #[serde(default)]
+    hue: u16,
+    #[serde(default)]
+    call_id: u64,
+    #[serde(default)]
+    sms_op: Option<SmsOp>,
+    #[serde(default)]
+    value: Option<Value>,
     #[serde(default)]
     charging: bool,
 }
@@ -155,6 +163,52 @@ async fn dispatch(method: &str, args_json: &str) -> anyhow::Result<Value> {
             n.rename_device(&a.device_name).await?;
             Value::Null
         }
+        "call_start" => json!(n.call_start(&a.id).await?),
+        "call_accept" => {
+            n.call_accept(a.call_id)?;
+            Value::Null
+        }
+        "call_decline" => {
+            n.call_decline(a.call_id)?;
+            Value::Null
+        }
+        "call_hangup" => {
+            n.call_hangup(a.call_id);
+            Value::Null
+        }
+        "call_send" => {
+            use base64::Engine;
+            let bytes = base64::engine::general_purpose::STANDARD.decode(&a.text)?;
+            n.call_send(a.call_id, bytes)?;
+            Value::Null
+        }
+        // Waits (up to 2 s) for the next audio frame; null when nothing came, "end" when the call is over.
+        "call_recv" => {
+            use base64::Engine;
+            match tokio::time::timeout(Duration::from_secs(2), n.call_recv(a.call_id)).await {
+                Ok(Some(d)) => json!(base64::engine::general_purpose::STANDARD.encode(d)),
+                Ok(None) => json!("end"),
+                Err(_) => Value::Null,
+            }
+        }
+        // The phone answers a question another device asked about its text messages.
+        "sms_reply" => {
+            n.sms_reply(a.call_id, a.value.unwrap_or(Value::Null))?;
+            Value::Null
+        }
+        "sms_push" => {
+            n.sms_push(&a.id, &a.path, a.user_name.clone(), &a.text)
+                .await?;
+            Value::Null
+        }
+        "sms" => {
+            let op = a.sms_op.ok_or_else(|| anyhow::anyhow!("missing op"))?;
+            n.sms(&a.id, op).await?
+        }
+        "set_color" => {
+            n.set_my_color(a.hue).await?;
+            Value::Null
+        }
         "send_url" => {
             n.send_url(&a.id, &a.text).await?;
             Value::Null
@@ -171,6 +225,11 @@ async fn dispatch(method: &str, args_json: &str) -> anyhow::Result<Value> {
         "shelf_list" => serde_json::to_value(n.shelf_list().await?)?,
         "shelf_put" => serde_json::to_value(n.shelf_put(Path::new(&a.path)).await?)?,
         "shelf_get" => json!(n.shelf_get(&a.id).await?.to_string_lossy()),
+        // Download into `path` (the app's cache folder) for previews.
+        "shelf_cache" => json!(n
+            .shelf_get_in(&a.id, Path::new(&a.path))
+            .await?
+            .to_string_lossy()),
         "shelf_delete" => {
             n.shelf_delete(&a.id).await?;
             Value::Null

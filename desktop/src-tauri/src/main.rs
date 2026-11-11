@@ -11,7 +11,7 @@ use std::sync::Arc;
 
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
-use tauri::{Manager, WindowEvent};
+use tauri::{Emitter, Manager, WindowEvent};
 use tauri_plugin_autostart::ManagerExt;
 use tauri_plugin_clipboard_manager::ClipboardExt;
 use tauri_plugin_notification::NotificationExt;
@@ -70,6 +70,8 @@ fn main() {
             let prefs = settings::load(&cfg.data_dir);
             let first_run = !settings::path(&cfg.data_dir).exists();
             let data_dir_copy = cfg.data_dir.clone();
+            // Previews of shelf files are served from the cache folder through the asset protocol.
+            let _ = app.asset_protocol_scope().allow_directory(cfg.data_dir.join("shelf-cache"), true);
             let node = tauri::async_runtime::block_on(Node::start(cfg))
                 .map_err(|e| format!("could not start P2P node: {e:#}"))?;
             if first_run {
@@ -141,6 +143,41 @@ fn main() {
                                 .body(format!("{name} from {from_name}"))
                                 .show();
                         }
+                        Event::SmsReceived { from_name, address, name, body, .. } => {
+                            let who = name.unwrap_or(address);
+                            state.log("sms", format!("Text message from {who}"), format!("on {from_name}"), true, None);
+                            let _ = handle.notification().builder().title(format!("{who} · {from_name}")).body(body).show();
+                            let _ = handle.emit("sms-received", ());
+                        }
+                        Event::SmsRequest { .. } => {}
+                        Event::CallIncoming { call_id, from, from_name } => {
+                            state.log("call", "Incoming call", from_name.clone(), true, None);
+                            show_main(&handle);
+                            let _ = handle
+                                .notification()
+                                .builder()
+                                .title("Zima Connect")
+                                .body(format!("{from_name} is calling"))
+                                .show();
+                            let _ = handle.emit("call-event", serde_json::json!({ "kind": "incoming", "call_id": call_id, "from": from, "peer": from_name }));
+                        }
+                        Event::CallState { call_id, state: st, peer_name } => {
+                            if st == "connected" {
+                                // Pull the other side's audio and hand it to the window to play.
+                                let node = state.node.clone();
+                                let h = handle.clone();
+                                tauri::async_runtime::spawn(async move {
+                                    use base64::Engine;
+                                    while let Some(d) = node.call_recv(call_id).await {
+                                        let _ = h.emit("call-audio", (call_id, base64::engine::general_purpose::STANDARD.encode(d)));
+                                    }
+                                });
+                            }
+                            if matches!(st.as_str(), "ended" | "declined" | "busy" | "unreachable") {
+                                state.log("call", format!("Call {st}"), peer_name.clone(), st == "ended", None);
+                            }
+                            let _ = handle.emit("call-event", serde_json::json!({ "kind": "state", "call_id": call_id, "state": st, "peer": peer_name }));
+                        }
                         Event::OpenUrl { from_name, url, .. } => {
                             state.log("link", "Link opened", format!("from {from_name}"), true, None);
                             let _ = open::that(&url);
@@ -203,6 +240,16 @@ fn main() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::rename_device,
+            commands::set_my_color,
+            commands::sms_threads,
+            commands::sms_thread,
+            commands::sms_send,
+            commands::call_start,
+            commands::call_accept,
+            commands::call_decline,
+            commands::call_hangup,
+            commands::call_send,
+            commands::call_active,
             commands::app_version,
             commands::open_external,
             commands::check_update,

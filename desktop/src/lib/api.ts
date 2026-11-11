@@ -1,7 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 
 export type Delivery = 'delivered' | 'queued';
-export type Cap = 'files' | 'clipboard' | 'notifications' | 'ring' | 'calls' | 'remote' | 'status';
+export type Cap = 'files' | 'clipboard' | 'notifications' | 'ring' | 'calls' | 'remote' | 'status' | 'sms';
 export const CAPS: { id: Cap; label: string; hint: string }[] = [
   { id: 'files', label: 'Files and photos', hint: 'Send files' },
   { id: 'clipboard', label: 'Clipboard', hint: 'Send clipboard text' },
@@ -9,7 +9,8 @@ export const CAPS: { id: Cap; label: string; hint: string }[] = [
   { id: 'ring', label: 'Find my device', hint: 'Make the device ring' },
   { id: 'calls', label: 'Voice calls', hint: 'Call the device' },
   { id: 'remote', label: 'Remote control', hint: 'Touchpad, keyboard and media keys' },
-  { id: 'status', label: 'Battery and status', hint: 'See the battery level' }
+  { id: 'status', label: 'Battery and status', hint: 'See the battery level' },
+  { id: 'sms', label: 'Text messages', hint: 'Read and send SMS of a phone' }
 ];
 
 export type Contact = {
@@ -18,6 +19,7 @@ export type Contact = {
   platform: string;
   user_id: string | null;
   user_name: string | null;
+  user_hue: number | null;
   mine: boolean;
   direct: boolean;
   caps: Cap[];
@@ -48,6 +50,8 @@ export type UpdateInfo = {
   can_install: boolean;
   page: string;
 };
+export type SmsThread = { id: string; address: string; name: string | null; snippet: string; date: number; unread: boolean };
+export type SmsMessage = { id: string; address: string; body: string; date: number; outgoing: boolean };
 export type Settings = { background: boolean; autostart: boolean; allow_remote: boolean };
 export type RemoteInput =
   | { k: 'move'; dx: number; dy: number }
@@ -67,7 +71,9 @@ export type Activity = {
   path: string | null;
 };
 
-export type User = { id: string; name: string; role: 'owner' | 'member' };
+export type User = { id: string; name: string; role: 'owner' | 'member'; hue: number | null };
+/** Colours people can have, the same on every device. */
+export const PALETTE = [8, 28, 46, 98, 150, 176, 200, 222, 252, 282, 312, 340];
 export type Device = { id: string; user_id: string; name: string; platform: string };
 export type Rule = { from_user: string; to_user: string; cap: Cap; allow: boolean };
 export type Household = {
@@ -83,6 +89,7 @@ export type AdminOp =
   | { op: 'remove_user'; id: string }
   | { op: 'rename_user'; id: string; name: string }
   | { op: 'rename_device'; id: string; name: string }
+  | { op: 'set_user_color'; id: string; hue: number }
   | { op: 'create_user'; name: string }
   | { op: 'set_role'; id: string; owner: boolean };
 
@@ -109,6 +116,11 @@ export const api = {
   appVersion: () => invoke<string>('app_version'),
   checkUpdate: () => invoke<UpdateInfo | null>('check_update'),
   installUpdate: (info: UpdateInfo) => invoke<void>('install_update', { info }),
+  smsThreads: (peerId: string) => invoke<SmsThread[]>('sms_threads', { peerId }),
+  smsThread: (peerId: string, id: string) => invoke<SmsMessage[]>('sms_thread', { peerId, id }),
+  smsSend: (peerId: string, to: string, body: string) => invoke<void>('sms_send', { peerId, to, body }),
+  callActive: () => invoke<[number, string, boolean] | null>('call_active'),
+  setMyColor: (hue: number) => invoke<void>('set_my_color', { hue }),
   renameDevice: (name: string) => invoke<string>('rename_device', { name }),
   settings: () => invoke<Settings>('get_settings'),
   setSettings: (next: Settings) => invoke<Settings>('set_settings', { new: next }),

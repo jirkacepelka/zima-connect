@@ -10,6 +10,7 @@
 //!   policy between people; devices find and authorise each other from it.
 //! * **Direct pairing** (no server): [`Node::pairing_ticket`] / [`Node::pair`].
 
+mod call;
 mod household;
 mod hub;
 mod mailbox;
@@ -34,8 +35,8 @@ pub use household::RelaySetting;
 pub use household::{AdminOp, Cap, Device, Role, Rule, SignedSnapshot, Snapshot, User};
 use hub::{HubCore, Outcome};
 use mailbox::{Item, Kind, Mailbox, Payload};
-pub use proto::RemoteInput;
 use proto::{read_msg, write_msg, Request, Response};
+pub use proto::{RemoteInput, SmsOp};
 pub use shelf::{Audience, ShelfItem};
 pub use store::Peer;
 use store::Store;
@@ -117,6 +118,33 @@ pub enum Event {
         from_name: String,
         input: RemoteInput,
     },
+    /// Another device wants this phone's text messages: answer with `Node::sms_reply`.
+    SmsRequest {
+        req_id: u64,
+        from: String,
+        from_name: String,
+        op: SmsOp,
+    },
+    /// A text message arrived on one of your phones.
+    SmsReceived {
+        from: String,
+        from_name: String,
+        address: String,
+        name: Option<String>,
+        body: String,
+    },
+    /// Somebody is calling this device.
+    CallIncoming {
+        call_id: u64,
+        from: String,
+        from_name: String,
+    },
+    /// A call changed: "ringing" | "connected" | "ended" | "declined" | "busy" | "unreachable".
+    CallState {
+        call_id: u64,
+        state: String,
+        peer_name: String,
+    },
     /// The sender stopped its "find my device" ring.
     RingStop {
         from: String,
@@ -139,6 +167,8 @@ pub struct Contact {
     pub platform: String,
     pub user_id: Option<String>,
     pub user_name: Option<String>,
+    /// The person's colour (hue), the same on every screen.
+    pub user_hue: Option<u16>,
     /// Belongs to the same person as this device.
     pub mine: bool,
     /// Paired directly (not through a household).
@@ -249,6 +279,10 @@ struct Inner {
     mailbox: Option<Mailbox>,
     shelf: Option<shelf::Shelf>,
     events: broadcast::Sender<Event>,
+    calls: Mutex<HashMap<u64, Arc<call::CallEntry>>>,
+    /// Pending questions to the app (text messages): request id -> where the answer goes.
+    rpc: Mutex<HashMap<u64, tokio::sync::oneshot::Sender<serde_json::Value>>>,
+    next_call: std::sync::atomic::AtomicU64,
     /// Current device name (user can rename it).
     name: Mutex<String>,
     /// Own relay currently applied to the endpoint.
@@ -326,6 +360,9 @@ impl Node {
                 shelf,
                 events,
                 name: Mutex::new(name),
+                calls: Mutex::new(HashMap::new()),
+                rpc: Mutex::new(HashMap::new()),
+                next_call: std::sync::atomic::AtomicU64::new(1),
                 relay_applied: Mutex::new(None),
             }),
         };
@@ -377,6 +414,26 @@ impl Node {
                 Response::Err { message } => bail!("{message}"),
                 _ => {}
             }
+        }
+        Ok(())
+    }
+
+    /// Pick the colour the household shows for this device's person.
+    pub async fn set_my_color(&self, hue: u16) -> Result<()> {
+        let hub = self
+            .inner
+            .membership
+            .lock()
+            .unwrap()
+            .as_ref()
+            .map(|m| m.hub.clone());
+        let Some(hub) = hub else {
+            bail!("not joined");
+        };
+        match self.request(hub, Request::Color { hue }, None).await? {
+            Response::Snapshot { snapshot } => self.apply_snapshot(snapshot)?,
+            Response::Err { message } => bail!("{message}"),
+            _ => {}
         }
         Ok(())
     }
@@ -728,6 +785,7 @@ impl Node {
                     platform: d.platform.clone(),
                     user_id: Some(d.user_id.clone()),
                     user_name: s.user(&d.user_id).map(|u| u.name.clone()),
+                    user_hue: s.user(&d.user_id).and_then(|u| u.hue),
                     mine: my_user.as_deref() == Some(d.user_id.as_str()),
                     direct: false,
                     caps,
@@ -742,6 +800,7 @@ impl Node {
                     platform: p.platform,
                     user_id: None,
                     user_name: None,
+                    user_hue: None,
                     mine: false,
                     direct: true,
                     caps: Cap::ALL.to_vec(),
@@ -964,6 +1023,266 @@ impl Node {
             self.request_peer(peer_id, Request::Remote { input }, Some(Cap::Remote), None)
                 .await?,
         )
+    }
+
+    // -- text messages (SMS of a phone) ----------------------------------------------
+
+    /// Ask a phone for its conversations, one conversation, or send a message through it.
+    pub async fn sms(&self, peer_id: &str, op: SmsOp) -> Result<serde_json::Value> {
+        match self
+            .request_peer(peer_id, Request::Sms { op }, Some(Cap::Sms), None)
+            .await?
+        {
+            Response::Json { value } => Ok(value),
+            Response::Ok => Ok(serde_json::Value::Null),
+            Response::Err { message } => bail!("{message}"),
+            _ => bail!("unexpected response"),
+        }
+    }
+
+    /// The phone's app answers a question that arrived as `Event::SmsRequest`.
+    pub fn sms_reply(&self, req_id: u64, value: serde_json::Value) -> Result<()> {
+        let tx = self.inner.rpc.lock().unwrap().remove(&req_id);
+        match tx {
+            Some(tx) => {
+                let _ = tx.send(value);
+                Ok(())
+            }
+            None => bail!("the question is no longer open"),
+        }
+    }
+
+    /// Tell one of your other devices about a text message that just arrived on this phone.
+    pub async fn sms_push(
+        &self,
+        peer_id: &str,
+        address: &str,
+        name: Option<String>,
+        body: &str,
+    ) -> Result<()> {
+        let req = Request::SmsPush {
+            address: address.into(),
+            name,
+            body: body.chars().take(2000).collect(),
+        };
+        self.expect_ok(
+            self.request_peer(peer_id, req, Some(Cap::Sms), None)
+                .await?,
+        )
+    }
+
+    // -- voice calls -----------------------------------------------------------
+
+    fn call_event(&self, id: u64, state: &str, peer_name: &str) {
+        let _ = self.inner.events.send(Event::CallState {
+            call_id: id,
+            state: state.into(),
+            peer_name: peer_name.into(),
+        });
+    }
+
+    fn call_entry(&self, id: u64) -> Option<Arc<call::CallEntry>> {
+        self.inner.calls.lock().unwrap().get(&id).cloned()
+    }
+
+    fn call_busy(&self) -> bool {
+        !self.inner.calls.lock().unwrap().is_empty()
+    }
+
+    /// Call a device. Returns the call id at once; progress arrives as `Event::CallState`.
+    pub async fn call_start(&self, peer_id: &str) -> Result<u64> {
+        self.can_send(peer_id, Some(Cap::Calls))?;
+        if self.call_busy() {
+            bail!("you are already in a call");
+        }
+        let id: EndpointId = peer_id.parse().map_err(|e| anyhow!("bad peer id: {e}"))?;
+        let peer_name = self
+            .contacts()
+            .into_iter()
+            .find(|c| c.id == peer_id)
+            .map(|c| c.name)
+            .unwrap_or_else(|| "device".into());
+        let conn = tokio::time::timeout(
+            Duration::from_secs(8),
+            self.inner.endpoint.connect(EndpointAddr::from(id), ALPN),
+        )
+        .await
+        .map_err(|_| anyhow::Error::new(Unreachable("timeout".into())))?
+        .map_err(|e| anyhow::Error::new(Unreachable(e.to_string())))?;
+        let (mut send, mut recv) = ctx(conn.open_bi().await)?;
+        write_msg(&mut send, &Request::Call).await?;
+
+        let call_id = self
+            .inner
+            .next_call
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let (entry, ch) = call::new_entry(peer_id.to_string(), peer_name.clone(), true, None);
+        self.inner
+            .calls
+            .lock()
+            .unwrap()
+            .insert(call_id, Arc::new(entry));
+        self.call_event(call_id, "ringing", &peer_name);
+
+        let node = self.clone();
+        tokio::spawn(async move {
+            let answer = tokio::time::timeout(
+                call::RING_TIMEOUT + Duration::from_secs(5),
+                read_msg::<_, Response>(&mut recv),
+            )
+            .await;
+            match answer {
+                Ok(Ok(Response::Ok)) => {
+                    node.call_event(call_id, "connected", &peer_name);
+                    call::pump(send, recv, ch).await;
+                    node.call_event(call_id, "ended", &peer_name);
+                }
+                Ok(Ok(Response::Err { message })) => {
+                    let state = if message.contains("busy") {
+                        "busy"
+                    } else {
+                        "declined"
+                    };
+                    node.call_event(call_id, state, &peer_name);
+                }
+                _ => node.call_event(call_id, "unreachable", &peer_name),
+            }
+            node.inner.calls.lock().unwrap().remove(&call_id);
+            tokio::time::sleep(Duration::from_millis(250)).await;
+            conn.close(0u32.into(), b"call over");
+        });
+        Ok(call_id)
+    }
+
+    /// The call this device is in (or that is ringing): (id, peer id, peer name, outgoing).
+    pub fn active_call(&self) -> Option<(u64, String, String, bool)> {
+        let g = self.inner.calls.lock().unwrap();
+        g.iter()
+            .next()
+            .map(|(id, c)| (*id, c.peer.clone(), c.peer_name.clone(), c.outgoing))
+    }
+
+    /// Answer an incoming call.
+    pub fn call_accept(&self, call_id: u64) -> Result<()> {
+        self.call_answer(call_id, true)
+    }
+
+    /// Turn an incoming call down.
+    pub fn call_decline(&self, call_id: u64) -> Result<()> {
+        self.call_answer(call_id, false)
+    }
+
+    fn call_answer(&self, call_id: u64, yes: bool) -> Result<()> {
+        let e = self
+            .call_entry(call_id)
+            .ok_or_else(|| anyhow!("this call is over"))?;
+        let tx = e.accept.lock().unwrap().take();
+        match tx {
+            Some(tx) => {
+                let _ = tx.send(yes);
+                Ok(())
+            }
+            None => bail!("already answered"),
+        }
+    }
+
+    /// Send one audio frame (PCM16 mono 16 kHz, 20 ms). Dropped silently when the line is full.
+    pub fn call_send(&self, call_id: u64, frame: Vec<u8>) -> Result<()> {
+        let e = self
+            .call_entry(call_id)
+            .ok_or_else(|| anyhow!("this call is over"))?;
+        let _ = e.out_tx.try_send(call::Frame::Audio(frame));
+        Ok(())
+    }
+
+    /// Wait for the next audio frame from the other side; `None` when the call is over.
+    pub async fn call_recv(&self, call_id: u64) -> Option<Vec<u8>> {
+        let e = self.call_entry(call_id)?;
+        let mut rx = e.in_rx.lock().await;
+        rx.recv().await
+    }
+
+    /// Hang up (or cancel while ringing).
+    pub fn call_hangup(&self, call_id: u64) {
+        if let Some(e) = self.call_entry(call_id) {
+            // An unanswered incoming call is declined.
+            if let Some(tx) = e.accept.lock().unwrap().take() {
+                let _ = tx.send(false);
+            }
+            let _ = e.out_tx.try_send(call::Frame::Hangup);
+        }
+    }
+
+    /// The other side called us: ring until answered, then run the audio.
+    async fn handle_call(
+        &self,
+        conn: iroh::endpoint::Connection,
+        mut send: iroh::endpoint::SendStream,
+        recv: iroh::endpoint::RecvStream,
+        remote: &str,
+    ) -> Result<()> {
+        let who = match self.authorize(remote, Some(Cap::Calls)).await {
+            Ok(w) => w,
+            Err(message) => {
+                write_msg(&mut send, &Response::Err { message }).await?;
+                ctx(send.finish())?;
+                let _ = tokio::time::timeout(Duration::from_secs(3), conn.closed()).await;
+                return Ok(());
+            }
+        };
+        if self.call_busy() {
+            write_msg(
+                &mut send,
+                &Response::Err {
+                    message: "busy".into(),
+                },
+            )
+            .await?;
+            ctx(send.finish())?;
+            let _ = tokio::time::timeout(Duration::from_secs(3), conn.closed()).await;
+            return Ok(());
+        }
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        let call_id = self
+            .inner
+            .next_call
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let (entry, ch) = call::new_entry(who.id.clone(), who.name.clone(), false, Some(tx));
+        self.inner
+            .calls
+            .lock()
+            .unwrap()
+            .insert(call_id, Arc::new(entry));
+        let _ = self.inner.events.send(Event::CallIncoming {
+            call_id,
+            from: who.id.clone(),
+            from_name: who.name.clone(),
+        });
+        let accepted = matches!(
+            tokio::time::timeout(call::RING_TIMEOUT, rx).await,
+            Ok(Ok(true))
+        );
+        if accepted {
+            write_msg(&mut send, &Response::Ok).await?;
+            self.call_event(call_id, "connected", &who.name);
+            call::pump(send, recv, ch).await;
+            self.call_event(call_id, "ended", &who.name);
+        } else {
+            let _ = write_msg(
+                &mut send,
+                &Response::Err {
+                    message: "declined".into(),
+                },
+            )
+            .await;
+            let _ = send.finish();
+            self.call_event(call_id, "declined", &who.name);
+            let _ = tokio::time::timeout(Duration::from_secs(2), conn.closed()).await;
+        }
+        self.inner.calls.lock().unwrap().remove(&call_id);
+        tokio::time::sleep(Duration::from_millis(250)).await;
+        conn.close(0u32.into(), b"call over");
+        Ok(())
     }
 
     /// Stop a ring started with [`Node::ring`].
@@ -1494,6 +1813,10 @@ impl Node {
         let (mut send, mut recv) = ctx(conn.accept_bi().await)?;
         let req: Request = read_msg(&mut recv).await?;
 
+        if matches!(req, Request::Call) {
+            return self.handle_call(conn, send, recv, &remote).await;
+        }
+
         let mut stream_after: Option<PathBuf> = None;
         let resp = match &req {
             Request::Deposit { .. }
@@ -1517,6 +1840,7 @@ impl Node {
             Request::Join { .. }
             | Request::Leave
             | Request::Rename { .. }
+            | Request::Color { .. }
             | Request::Sync { .. }
             | Request::Admin { .. } => self.handle_hub_request(&req, &remote),
             Request::Pair {
@@ -1737,6 +2061,12 @@ impl Node {
                     Err(e) => err(e),
                 }
             }
+            Request::Color { hue } => {
+                match hub.set_my_color(remote, *hue).and_then(|_| hub.signed()) {
+                    Ok(s) => Response::Snapshot { snapshot: s },
+                    Err(e) => err(e),
+                }
+            }
             Request::Sync { have } => match hub.sync(remote, *have) {
                 Ok(Some(s)) => Response::Snapshot { snapshot: s },
                 Ok(None) => Response::NotModified,
@@ -1781,6 +2111,7 @@ impl Node {
             Request::Notify { .. } => Some(Cap::Notifications),
             Request::File { .. } => Some(Cap::Files),
             Request::OpenUrl { .. } => Some(Cap::Clipboard),
+            Request::Sms { .. } | Request::SmsPush { .. } => Some(Cap::Sms),
             Request::Battery { .. } => Some(Cap::Status),
             Request::Remote { .. } => Some(Cap::Remote),
             _ => None, // Ping
@@ -1825,6 +2156,53 @@ impl Node {
                 } else {
                     Response::Err {
                         message: "only web links can be opened".into(),
+                    }
+                }
+            }
+            Request::SmsPush {
+                address,
+                name,
+                body,
+            } => {
+                let _ = ev.send(Event::SmsReceived {
+                    from: who.id,
+                    from_name: who.name,
+                    address: address.clone(),
+                    name: name.clone(),
+                    body: body.clone(),
+                });
+                Response::Ok
+            }
+            Request::Sms { op } => {
+                // Ask the app, wait for its answer (it reads the phone's messages).
+                let req_id = self
+                    .inner
+                    .next_call
+                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                let (tx, rx) = tokio::sync::oneshot::channel();
+                self.inner.rpc.lock().unwrap().insert(req_id, tx);
+                let _ = ev.send(Event::SmsRequest {
+                    req_id,
+                    from: who.id,
+                    from_name: who.name,
+                    op: op.clone(),
+                });
+                match tokio::time::timeout(Duration::from_secs(20), rx).await {
+                    Ok(Ok(value)) => {
+                        if let Some(m) = value.get("error").and_then(|e| e.as_str()) {
+                            Response::Err {
+                                message: m.to_string(),
+                            }
+                        } else {
+                            Response::Json { value }
+                        }
+                    }
+                    _ => {
+                        self.inner.rpc.lock().unwrap().remove(&req_id);
+                        Response::Err {
+                            message: "the phone did not answer (are text messages shared on it?)"
+                                .into(),
+                        }
                     }
                 }
             }

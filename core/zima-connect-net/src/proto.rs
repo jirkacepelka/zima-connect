@@ -6,6 +6,22 @@ use crate::household::{AdminOp, SignedSnapshot};
 use crate::mailbox::{Entry, Item};
 use crate::shelf::{Audience, ShelfItem};
 
+/// What another device asks of a phone's text messages.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "op", rename_all = "snake_case")]
+pub enum SmsOp {
+    /// The conversations, newest first.
+    Threads,
+    /// The messages of one conversation.
+    Thread {
+        id: String,
+    },
+    Send {
+        to: String,
+        body: String,
+    },
+}
+
 /// Things one device can do on another by remote control.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "k", rename_all = "snake_case")]
@@ -52,6 +68,19 @@ pub enum Request {
     },
     Ring,
     RingStop,
+    /// Ask a phone for its text messages (the phone answers through the app).
+    Sms {
+        op: SmsOp,
+    },
+    /// A phone tells its owner's other devices that a text message arrived.
+    SmsPush {
+        address: String,
+        name: Option<String>,
+        body: String,
+    },
+    /// Start a voice call. The reply (accepted or not) comes when the other person answers;
+    /// after `Ok` the same stream carries audio frames both ways.
+    Call,
     /// Open a link on the other device.
     OpenUrl {
         url: String,
@@ -93,6 +122,10 @@ pub enum Request {
     Rename {
         name: String,
     },
+    /// The person using this device picked a colour for themselves.
+    Color {
+        hue: u16,
+    },
     // -- shelf (hub) --
     /// Followed by exactly `size` raw bytes.
     ShelfPut {
@@ -129,6 +162,7 @@ pub enum Request {
 #[serde(tag = "t", rename_all = "snake_case")]
 pub enum Response {
     Ok,
+    Json { value: serde_json::Value },
     PairOk { name: String, platform: String },
     Joined { snapshot: SignedSnapshot },
     Snapshot { snapshot: SignedSnapshot },

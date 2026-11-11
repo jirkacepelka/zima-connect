@@ -7,6 +7,8 @@ import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
@@ -20,6 +22,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -438,4 +441,50 @@ fun saveToPublicDownloads(ctx: Context, file: File, name: String): String {
         file.delete()
         "Downloads/Zima Connect"
     }.getOrDefault("the app's folder")
+}
+
+private val PALETTE = listOf(8, 28, 46, 98, 150, 176, 200, 222, 252, 282, 312, 340)
+
+/** Pick the colour that stands for you on every screen. */
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@Composable
+fun ColourCard(say: (String) -> Unit) {
+    val scope = rememberCoroutineScope()
+    val me = AppModel.household?.me ?: return
+    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(16.dp)) {
+            Text("Your colour", style = MaterialTheme.typography.titleMedium)
+            Text(
+                "Shown for you on the server, computers and phones.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.height(12.dp))
+            androidx.compose.foundation.layout.FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                PALETTE.forEach { h ->
+                    val selected = me.hue == h
+                    Box(
+                        Modifier
+                            .size(34.dp)
+                            .clip(androidx.compose.foundation.shape.CircleShape)
+                            .background(androidx.compose.ui.graphics.Color.hsl(h.toFloat(), .7f, .62f))
+                            .then(if (selected) Modifier.border(3.dp, MaterialTheme.colorScheme.onSurface, androidx.compose.foundation.shape.CircleShape) else Modifier)
+                            .clickable {
+                                scope.launch {
+                                    try {
+                                        AppModel.setMyColor(h)
+                                        say("Colour saved")
+                                    } catch (e: Throwable) {
+                                        say(e.message ?: "Could not save the colour")
+                                    }
+                                }
+                            },
+                    )
+                }
+            }
+        }
+    }
 }

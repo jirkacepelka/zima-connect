@@ -115,12 +115,12 @@ private fun iconFor(platform: String): ImageVector = when (platform) {
     else -> Icons.Outlined.Computer
 }
 
-private fun platformLabel(p: String) = mapOf(
+internal fun platformLabel(p: String) = mapOf(
     "android" to "Android", "windows" to "Windows", "linux" to "Linux",
     "macos" to "macOS", "ios" to "iOS", "server" to "ZimaOS",
 )[p] ?: p
 
-private fun ago(ts: Long): String {
+internal fun ago(ts: Long): String {
     val s = ((System.currentTimeMillis() - ts) / 1000).coerceAtLeast(0)
     return when {
         s < 45 -> "just now"
@@ -142,7 +142,7 @@ private fun copyText(ctx: Context, text: String) {
     ctx.getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("Zima Connect", text))
 }
 
-private fun queryName(ctx: Context, uri: Uri): String? =
+internal fun queryName(ctx: Context, uri: Uri): String? =
     ctx.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c ->
         if (c.moveToFirst()) c.getString(0) else null
     }
@@ -220,9 +220,6 @@ fun App(shared: List<Uri>, clearShared: () -> Unit) {
                 actions = {
                     if (screen is Screen.Home) {
                         if (AppModel.household != null) {
-                            IconButton(onClick = { screen = Screen.Shelf }) {
-                                Icon(Icons.Outlined.Inventory2, contentDescription = "Shelf")
-                            }
                             IconButton(onClick = { screen = Screen.Household }) {
                                 Icon(Icons.Outlined.Groups, contentDescription = "Household")
                             }
@@ -247,6 +244,7 @@ fun App(shared: List<Uri>, clearShared: () -> Unit) {
         },
     ) { pad ->
         Column(Modifier.padding(pad).fillMaxSize()) {
+        CallOverlay()
         UpdateBanner(::say)
         AppModel.ringingFrom?.let { from ->
             Card(
@@ -263,14 +261,15 @@ fun App(shared: List<Uri>, clearShared: () -> Unit) {
         }
         Box(Modifier.weight(1f).fillMaxWidth()) {
             when (val s = screen) {
-                Screen.Home -> HomeScreen(
+                Screen.Home -> HomePage(
                     onOpen = { screen = Screen.Device(it) },
                     onAdd = { addOpen = true },
                     onHousehold = { screen = Screen.Household },
+                    say = ::say,
                 )
                 is Screen.Device -> {
                     val c = AppModel.contacts.firstOrNull { it.id == s.id }
-                    if (c == null) screen = Screen.Home else DeviceScreen(c, ::say)
+                    if (c == null) screen = Screen.Home else DevicePage(c, ::say)
                 }
                 Screen.Household -> HouseholdScreen(::say) { code, label -> invite = code to label }
                 Screen.Shelf -> ShelfScreen(::say)
@@ -289,300 +288,6 @@ fun App(shared: List<Uri>, clearShared: () -> Unit) {
             onDone = clearShared,
             say = ::say,
         )
-    }
-}
-
-// ───────────────────────── Home ─────────────────────────
-
-@Composable
-private fun HomeScreen(onOpen: (String) -> Unit, onAdd: () -> Unit, onHousehold: () -> Unit) {
-    val contacts = AppModel.contacts
-    val household = AppModel.household
-
-    if (AppModel.startError != null) {
-        Column(Modifier.fillMaxSize().padding(32.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
-            Text("Could not start", style = MaterialTheme.typography.titleMedium)
-            Text(AppModel.startError ?: "", color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-        return
-    }
-
-    if (contacts.isEmpty()) {
-        Column(
-            Modifier.fillMaxSize().padding(32.dp),
-            verticalArrangement = Arrangement.Center,
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            Box(
-                Modifier.size(72.dp).clip(MaterialTheme.shapes.large).background(MaterialTheme.colorScheme.primaryContainer),
-                contentAlignment = Alignment.Center,
-            ) { Icon(Icons.Outlined.Smartphone, null, tint = Accent, modifier = Modifier.size(34.dp)) }
-            Spacer(Modifier.height(20.dp))
-            if (household == null) {
-                Text("Connect your devices", style = MaterialTheme.typography.titleLarge)
-                Spacer(Modifier.height(8.dp))
-                Text(
-                    "Join your Zima Connect server once and your devices find each other automatically. No account or domain needed.",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(horizontal = 8.dp),
-                )
-                Spacer(Modifier.height(24.dp))
-                Button(onClick = onAdd) { Text("Join server") }
-            } else {
-                Text("You’re in ${household.name}", style = MaterialTheme.typography.titleLarge)
-                Spacer(Modifier.height(8.dp))
-                Text(
-                    "No other devices yet. Add devices from the Household page.",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Spacer(Modifier.height(24.dp))
-                Button(onClick = onHousehold) { Text("Open household") }
-            }
-        }
-        return
-    }
-
-    val mine = contacts.filter { it.mine }
-    val direct = contacts.filter { it.direct }
-    val others = contacts.filter { !it.mine && !it.direct }.groupBy { it.userName ?: "Others" }
-    val groups = buildList {
-        if (mine.isNotEmpty()) add("My devices" to mine)
-        others.forEach { (k, v) -> add(k to v) }
-        if (direct.isNotEmpty()) add("Paired directly" to direct)
-    }
-
-    LazyColumn(contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 96.dp)) {
-        groups.forEach { (label, items) ->
-            item(key = "h-$label") {
-                Text(
-                    label,
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(start = 4.dp, top = 16.dp, bottom = 8.dp),
-                )
-            }
-            items(items, key = { it.id }) { c -> ContactRow(c) { onOpen(c.id) } }
-        }
-    }
-}
-
-@Composable
-private fun ContactRow(c: Contact, onClick: () -> Unit) {
-    Card(
-        onClick = onClick,
-        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
-    ) {
-        Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(
-                Modifier.size(42.dp).clip(MaterialTheme.shapes.small).background(MaterialTheme.colorScheme.primaryContainer),
-                contentAlignment = Alignment.Center,
-            ) { Icon(iconFor(c.platform), null, tint = Accent) }
-            Spacer(Modifier.width(14.dp))
-            Column(Modifier.weight(1f)) {
-                Text(c.name, style = MaterialTheme.typography.titleMedium)
-                Text(
-                    if (c.online) "Connected${c.rttMs?.let { " · $it ms" } ?: ""}" else "Offline",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            Box(Modifier.size(10.dp).clip(CircleShape).background(if (c.online) Ok else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)))
-        }
-    }
-}
-
-// ───────────────────────── Device ─────────────────────────
-
-@Composable
-private fun DeviceScreen(c: Contact, say: (String) -> Unit) {
-    val ctx = LocalContext.current
-    val scope = rememberCoroutineScope()
-    var busy by remember { mutableStateOf(false) }
-    var ringing by remember(c.id) { mutableStateOf(false) }
-    LaunchedEffect(ringing) {
-        if (ringing) {
-            delay(30_000)
-            ringing = false
-        }
-    }
-
-    fun can(cap: String) = cap in c.caps && (c.online || (!c.direct && cap != "ring"))
-
-    fun report(d: Delivery, what: String) = say(
-        if (d == Delivery.Queued) "$what queued: the server delivers it when the device is back" else "$what sent",
-    )
-
-    val pick = rememberLauncherForFile { uri ->
-        scope.launch {
-            busy = true
-            try {
-                val (file, name) = copyToCache(ctx, uri)
-                try {
-                    report(AppModel.sendFile(c, file, name), "File")
-                } finally {
-                    file.delete()
-                }
-            } catch (e: Throwable) {
-                say(e.message ?: "Could not send the file")
-            } finally {
-                busy = false
-            }
-        }
-    }
-
-    LazyColumn(contentPadding = PaddingValues(16.dp)) {
-        item {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    Modifier.size(56.dp).clip(MaterialTheme.shapes.medium).background(MaterialTheme.colorScheme.surface),
-                    contentAlignment = Alignment.Center,
-                ) { Icon(iconFor(c.platform), null, tint = Accent, modifier = Modifier.size(28.dp)) }
-                Spacer(Modifier.width(14.dp))
-                Column {
-                    Text(c.name, style = MaterialTheme.typography.titleLarge)
-                    Text(
-                        buildString {
-                            append(if (c.online) "Connected${c.rttMs?.let { " · $it ms" } ?: ""}" else "Not reachable right now")
-                            append(" · ${platformLabel(c.platform)}")
-                            if (!c.mine && c.userName != null) append(" · ${c.userName}’s device")
-                            c.battery?.let { append(" · battery ${it.first} %${if (it.second) " charging" else ""}") }
-                        },
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            }
-            Spacer(Modifier.height(20.dp))
-        }
-        item {
-            ActionCard(
-                Icons.Outlined.ContentPaste, "Send clipboard",
-                if ("clipboard" in c.caps) "Share what you copied" else "Not allowed",
-                can("clipboard") && !busy,
-            ) {
-                scope.launch {
-                    val text = ctx.getSystemService(ClipboardManager::class.java)
-                        .primaryClip?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.coerceToText(ctx)?.toString()
-                    if (text.isNullOrEmpty()) {
-                        say("Clipboard is empty")
-                        return@launch
-                    }
-                    busy = true
-                    try {
-                        report(AppModel.sendClipboard(c, text), "Clipboard")
-                    } catch (e: Throwable) {
-                        say(e.message ?: "Could not send")
-                    } finally {
-                        busy = false
-                    }
-                }
-            }
-            ActionCard(
-                Icons.Outlined.InsertDriveFile, "Send file or photo",
-                if ("files" in c.caps) "Photos, documents, anything" else "Not allowed",
-                can("files") && !busy,
-            ) { pick() }
-            if (ringing) {
-                ActionCard(Icons.Outlined.Close, "Stop ringing", "It stops by itself after 30 s", !busy) {
-                    scope.launch {
-                        ringing = false
-                        runCatching { Api.call("ring_stop", Api.args("id" to c.id)) }
-                            .onSuccess { say("Stopped ringing") }
-                            .onFailure { say(it.message ?: "Could not reach the device") }
-                    }
-                }
-            } else {
-                ActionCard(
-                    Icons.Outlined.NotificationsActive, "Find device",
-                    if ("ring" in c.caps) "Make it ring" else "Not allowed",
-                    can("ring") && !busy,
-                ) {
-                    scope.launch {
-                        busy = true
-                        try {
-                            Api.call("ring", Api.args("id" to c.id))
-                            ringing = true
-                            say("Device is ringing")
-                        } catch (e: Throwable) {
-                            say(e.message ?: "Could not reach the device")
-                        } finally {
-                            busy = false
-                        }
-                    }
-                }
-            }
-            LinkCard(c, say)
-            RemoteControl(c, say)
-            if (c.direct) {
-                TextButton(onClick = {
-                    scope.launch {
-                        runCatching { Api.call("unpair", Api.args("id" to c.id)) }
-                        say("${c.name} removed")
-                        AppModel.refresh()
-                    }
-                }) { Text("Remove this device", color = MaterialTheme.colorScheme.error) }
-            }
-            Spacer(Modifier.height(16.dp))
-            Text("Recent activity", style = MaterialTheme.typography.titleMedium)
-            Spacer(Modifier.height(8.dp))
-        }
-        if (AppModel.activities.isEmpty()) {
-            item { Text("Nothing yet.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
-        } else {
-            items(AppModel.activities) { a ->
-                Card(
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                ) {
-                    Column(Modifier.padding(12.dp)) {
-                        Row {
-                            Text(a.title, style = MaterialTheme.typography.titleMedium.copy(fontSize = 14.sp), modifier = Modifier.weight(1f))
-                            Text(ago(a.ts), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                        if (a.detail.isNotEmpty()) {
-                            Text(a.detail, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-/** Returns a function that opens the system file picker and calls [onPicked] with the result. */
-@Composable
-internal fun rememberLauncherForFile(onPicked: (Uri) -> Unit): () -> Unit {
-    val launcher = androidx.activity.compose.rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri != null) onPicked(uri)
-    }
-    return { launcher.launch(arrayOf("*/*")) }
-}
-
-@Composable
-private fun ActionCard(icon: ImageVector, title: String, sub: String, enabled: Boolean, onClick: () -> Unit) {
-    Card(
-        onClick = onClick,
-        enabled = enabled,
-        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surface,
-            disabledContainerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.6f),
-        ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
-    ) {
-        Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(
-                Modifier.size(44.dp).clip(MaterialTheme.shapes.small).background(MaterialTheme.colorScheme.primaryContainer),
-                contentAlignment = Alignment.Center,
-            ) { Icon(icon, null, tint = if (enabled) Accent else Accent.copy(alpha = 0.4f)) }
-            Spacer(Modifier.width(14.dp))
-            Column {
-                Text(title, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface.copy(alpha = if (enabled) 1f else 0.5f))
-                Text(sub, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-        }
     }
 }
 
@@ -764,7 +469,13 @@ private fun SettingsScreen(say: (String) -> Unit, onLeft: () -> Unit) {
         item {
             UpdateCard(say)
             Spacer(Modifier.height(16.dp))
+            SmsCard(say)
+            Spacer(Modifier.height(16.dp))
             RenameCard(say)
+            if (AppModel.household != null) {
+                Spacer(Modifier.height(16.dp))
+                ColourCard(say)
+            }
             Spacer(Modifier.height(16.dp))
             Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), modifier = Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(16.dp)) {

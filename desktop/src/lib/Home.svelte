@@ -52,7 +52,7 @@
     return new Date(ts).toLocaleDateString();
   }
   const activityIcon = (k: string) =>
-    ({ clipboard: 'clipboard', file: 'file', ring: 'bell', notification: 'bell', pair: 'link', link: 'globe', shelf: 'shelf' } as Record<string, string>)[k] ?? 'activity';
+    ({ clipboard: 'clipboard', file: 'file', ring: 'bell', notification: 'bell', pair: 'link', link: 'globe', shelf: 'shelf', sms: 'clipboard', call: 'call' } as Record<string, string>)[k] ?? 'activity';
 </script>
 
 <div class="title-row" style="margin-bottom:36px">

@@ -2,11 +2,11 @@
   import Icon from '$lib/Icon.svelte';
   import Mockup from '$lib/Mockup.svelte';
   import type { Contact } from '$lib/api';
-  import { PLATFORM, hueOf, kindOf, ownerName } from '$lib/devices';
+  import { PLATFORM, hueFor, kindOf, ownerName } from '$lib/devices';
 
   let { c, over = false, onopen }: { c: Contact; over?: boolean; onopen: () => void } = $props();
 
-  const hue = $derived(hueOf(c.user_name ?? c.id));
+  const hue = $derived(hueFor(c));
   const charging = $derived(!!c.battery && c.battery[1]);
 </script>
 

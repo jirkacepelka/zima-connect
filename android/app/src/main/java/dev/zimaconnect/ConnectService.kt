@@ -129,6 +129,12 @@ class ConnectService : Service() {
                 Ringer.start(this, from)
             }
             "ring_stop" -> Ringer.stop(this)
+            "sms_request" -> {
+                val reply = SmsBridge.answer(applicationContext, ev.getJSONObject("op"))
+                runCatching { Api.call("sms_reply", Api.args("call_id" to ev.getLong("req_id"), "value" to reply)) }
+            }
+            "call_incoming" -> CallEngine.onIncoming(applicationContext, ev.getLong("call_id"), ev.getString("from_name"))
+            "call_state" -> CallEngine.onState(applicationContext, ev.getLong("call_id"), ev.getString("state"), ev.optString("peer_name"))
             "open_url" -> {
                 val from = ev.getString("from_name")
                 val url = ev.getString("url")

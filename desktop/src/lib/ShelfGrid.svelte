@@ -81,26 +81,37 @@
   }
 
   // Dragging a card out of the window starts a native file drag (to the desktop, a folder, another app).
-  let press: { x: number; y: number; item: ShelfItem } | null = null;
+  // The file is fetched as soon as the mouse goes down, and the drag starts once it moved a little.
+  let press: { x: number; y: number; item: ShelfItem; ready: Promise<unknown> } | null = null;
+
   function down(e: PointerEvent, item: ShelfItem) {
-    if (e.button !== 0) return;
-    press = { x: e.clientX, y: e.clientY, item };
+    if (e.button !== 0 || dragId) return;
+    press = { x: e.clientX, y: e.clientY, item, ready: api.shelfCache(item.id, item.name, item.size).catch(() => null) };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', release);
+    window.addEventListener('pointercancel', release);
+  }
+  function release() {
+    press = null;
+    window.removeEventListener('pointermove', move);
+    window.removeEventListener('pointerup', release);
+    window.removeEventListener('pointercancel', release);
   }
   async function move(e: PointerEvent) {
     if (!press || dragId) return;
-    if (Math.hypot(e.clientX - press.x, e.clientY - press.y) < 8) return;
-    const it = press.item;
-    press = null;
-    dragId = it.id;
+    if (Math.hypot(e.clientX - press.x, e.clientY - press.y) < 6) return;
+    const { item, ready } = press;
+    release();
+    dragId = item.id;
     try {
-      await api.dragOut(it.id, it.name, it.size);
+      await ready;
+      await api.dragOut(item.id, item.name, item.size);
     } catch (err) {
       say(errText(err), true);
     } finally {
       dragId = null;
     }
   }
-  const up = () => (press = null);
 </script>
 
 <section class="shelf" class:over={dragging} aria-labelledby="h-shelf">
@@ -121,7 +132,7 @@
   {:else}
     <div class="grid" role="list">
       {#each items as i (i.id)}
-        <div class="tile" role="listitem" class:dragging={dragId === i.id} onpointerdown={(e) => down(e, i)} onpointermove={move} onpointerup={up} onpointercancel={up}>
+        <div class="tile" role="listitem" class:dragging={dragId === i.id} onpointerdown={(e) => down(e, i)}>
           <button class="open" onclick={() => (preview = i)} aria-label="Preview {i.name}"><Thumb item={i} /></button>
           <div class="cap">
             <div class="n" title={i.name}>{i.name}</div>
